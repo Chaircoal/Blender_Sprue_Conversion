@@ -1,0 +1,4 @@
+Marut - Inactive - Tabletop Miniature by Yasashii on Thingiverse: https://www.thingiverse.com/thing:6079087
+
+Summary:
+Join me on Patreon or Tribes!The nigh-unstoppable inevitables serve a singular purpose: they enforce contracts forged in the Hall of Concordance in the city of Sigil. Primus, the leader of the modrons, created maruts and other inevitables to bring order to dealings between planar folk.Marut for use in any epic adventure! Compatible with any tabletop role-playing games.Both 32mm and 54mm scaling options provided!If you like what I do and would like to support the creation of minis for the whole community please consider joining my Patreon or Tribes where you vote for what I sculpt next, get more variants, stat blocks, vtt tokens and a heap more!
