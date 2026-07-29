@@ -1,9 +1,12 @@
 ## Utility functions used throughout the addon
 ## Note: (""" Are documentation strings for Blender's auto-doc system, not comments """)
 
+import math
 import bpy
 import bmesh
 from mathutils import Vector
+from mathutils.bvhtree import BVHTree
+
 
 #  Core geometry helpers
 # returns the mesh of the selected object
@@ -420,3 +423,208 @@ def add_gate_cylinder(collection, base_point, tip_point, diameter, name):
     collection.objects.link(gate_obj)
 
     return gate_obj
+
+
+# Master call function for all manifold checks
+def check_mesh_manifold(bm):
+    """
+    Check the current mesh to ensure that it is manifold.
+    This means that is ready and able to be 3D printed without problems
+    """
+    bm.edges.ensure_lookup_table()
+    bm.verts.ensure_lookup_table()
+    bm.faces.ensure_lookup_table()
+
+    open_edge_indices = get_open_edge_indices(bm)
+    non_manifold_edge_indices = get_non_manifold_edge_indices(bm)
+    non_manifold_vert_indices = get_non_manifold_vert_indices(bm)
+    incontiguous_edge_indices = get_incontiguous_edge_indices(bm)
+    zero_edge_indices = get_zero_edge_indices(bm)
+    zero_face_indices = get_zero_face_indices(bm)
+    overhang_face_indices = get_overhang_face_indices(bm)
+    # thin_wall_indices = get_thin_wall_indices(bm)
+    nonplanar_face_indices = get_nonplanar_face_indices(bm)
+
+    # if all are 0 then the model is watertight and manifold
+    if (
+        len(open_edge_indices) == 0
+        and len(non_manifold_edge_indices) == 0
+        and len(non_manifold_vert_indices) == 0
+        and len(incontiguous_edge_indices) == 0
+        and len(zero_edge_indices) == 0
+        and len(zero_face_indices) == 0
+        and len(overhang_face_indices) == 0
+        # and len(thin_wall_indices) == 0
+        and len(nonplanar_face_indices) == 0
+    ):
+        print("RESULT: Mesh is Watertight (Manifold)!")
+        is_watertight = True
+    else:
+        print("RESULT: Mesh is NOT Watertight.")
+        is_watertight = False
+
+    return dict(
+        is_watertight = is_watertight,
+        open_edge_indices = open_edge_indices,
+        non_manifold_edge_indices = non_manifold_edge_indices,
+        non_manifold_vert_indices = non_manifold_vert_indices,
+        incontiguous_edge_indices = incontiguous_edge_indices,
+        zero_edge_indices = zero_edge_indices,
+        zero_face_indices = zero_face_indices,
+        overhang_face_indices = overhang_face_indices,
+        # thin_wall_indices = thin_wall_indices,
+        nonplanar_face_indices = nonplanar_face_indices
+    )
+
+# DFM and Manifold checks
+def get_open_edge_indices(bm):
+    """
+    Get all open edges or holes that exist on the current mesh.
+    """
+    open_edge_indices = []
+
+    # Loop through all edges to ensure that each one is not a hole
+    for edge in bm.edges:
+        if len(edge.link_faces) < 2:
+            open_edge_indices.append(edge.index)
+
+    return open_edge_indices
+
+
+def get_non_manifold_edge_indices(bm):
+    """
+    Get all non-manifold edges that exist on the current mesh.
+    """
+    non_manifold_edge_indices = []
+
+    for edge in bm.edges:
+        if len(edge.link_faces) > 2:
+            non_manifold_edge_indices.append(edge.index)
+
+    return non_manifold_edge_indices
+
+
+def get_non_manifold_vert_indices(bm):
+    """
+    Get all non-manifold vertices that exist on the current mesh.
+    """
+    non_manifold_vert_indices = []
+
+    # Loop through all vertices to ensure that they are manifold
+    for vert in bm.verts:
+        if not vert.is_manifold:
+            non_manifold_vert_indices.append(vert.index)
+
+    return non_manifold_vert_indices
+
+
+def get_incontiguous_edge_indices(bm):
+    """
+    Get all incontiguous edges that exist on the current mesh.
+    aka edges that have exactly 2 linked faces but conflicting normal orientations
+    """
+    incontiguous_edge_indices = []
+
+    for edge in bm.edges:
+        if len(edge.link_faces) == 2 and not edge.is_contiguous:
+            incontiguous_edge_indices.append(edge.index)
+
+    return incontiguous_edge_indices
+
+
+def get_zero_edge_indices(bm, threshold=0.00001):
+    """
+    Get all degenerate edges that exist on the current mesh.
+    aka Edges where the distance between the two endpoints is virtually zero
+    """
+    zero_edge_indices = []
+
+    for edge in bm.edges:
+        if edge.calc_length() <= threshold:
+            zero_edge_indices.append(edge.index)
+
+    return zero_edge_indices
+
+
+def get_zero_face_indices(bm, threshold=0.00001):
+    """
+    Get all zero area faces that exist on the current mesh.
+    aka Faces that have collapsed into a single line or point.
+    """
+    zero_face_indices = []
+
+    for face in bm.faces:
+        if face.calc_area() <= threshold:
+            zero_face_indices.append(face.index)
+
+    return zero_face_indices
+
+
+def get_overhang_face_indices(bm, angle_overhang=45):
+    """
+    Get all overhanging faces that exist on the current mesh.
+    aka Faces that overhang further than a certain angle
+    """
+    overhang_face_indices = []
+    z_down = Vector((0, 0, -1.0))
+    z_angle_down = z_down.angle
+    angle_overhang_rad = math.radians(angle_overhang)
+
+    bm.normal_update()
+
+    # 4.0 ignores zero area faces
+    for face in bm.faces:
+        if z_angle_down(face.normal, 4.0) < angle_overhang_rad:
+            overhang_face_indices.append(face.index)
+
+    return overhang_face_indices
+
+
+# def get_thin_wall_indices(bm, min_thickness=0.0015):
+#     """
+#     Get all too thin walls that exist on the current mesh
+#     https://docs.blender.org/api/current/mathutils.bvhtree.html
+#     """
+#     raycast_tree = BVHTree.FromBMesh(bm)
+#     start_offset = 0.0001
+#     self_hit = 0
+#
+#     thin_wall_indices = []
+#
+#     for face in bm.faces:
+#         norm = face.normal
+#         start_pos = face.calc_center_median() - (norm * start_offset)
+#         location, normal, index, distance = raycast_tree.ray_cast(start_pos, -norm, 1000.0)#min_thickness)
+#         if index == face.index:
+#             self_hit += 1
+#             # print("Self hit")
+#         if index is not None and index != face.index:
+#             print(distance)
+#             thin_wall_indices.append(face.index)
+#     print(str(self_hit) + "Self hits")
+#     return thin_wall_indices
+
+
+def get_nonplanar_face_indices(bm, threshold=5):
+    """
+    Get all nonplanar faces that exist on the current mesh.
+    aka non-flat faces or distorted faces (n-gons whose vertices do not lie on the exact same flat plane)
+    """
+    nonplanar_face_indices = []
+
+    bm.normal_update()
+    threshold_angle = math.radians(threshold)
+
+    for face in bm.faces:
+        norm = face.normal
+        for loop in face.loops:
+            loop_norm = loop.calc_normal()
+
+            if loop_norm.dot(norm) < 0.0:
+                loop_norm.negate()
+
+            if (norm.angle(loop_norm, 1000.0) * 2.0) > threshold_angle:
+                nonplanar_face_indices.append(face.index)
+                break
+
+    return nonplanar_face_indices

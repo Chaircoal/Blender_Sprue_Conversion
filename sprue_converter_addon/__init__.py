@@ -41,6 +41,7 @@ CLASSES = [
     operators.SPRUE_OT_ClearHeatmap,
     operators.SPRUE_OT_ClearAll,
     operators.SPRUE_OT_BuildSprueFrame,
+    operators.SPRUE_OT_SelectNonManifold,
     ui.SPRUE_PT_MainPanel,
 ]
 

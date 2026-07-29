@@ -36,6 +36,26 @@ class SPRUE_PT_MainPanel(bpy.types.Panel):
         col.prop(settings, "curvature_threshold", slider=True)
         col.operator("sprue.analyze_mesh", icon='HIDE_OFF')
 
+        if settings.is_watertight:
+            row = box.row()
+            row.label(text="Model is watertight", icon='CHECKMARK')
+        else:
+            col = box.column(align=True)
+            col.alert = True
+            col.label(text="Model not watertight!", icon='ERROR')
+            col.label(text=f"  - Open Edges: {settings.open_edge_count}")
+            col.label(text=f"  - Non-manifold Edges: {settings.non_manifold_edge_count}")
+            col.label(text=f"  - Non-manifold Vertices: {settings.non_manifold_vert_count}")
+            col.label(text=f"  - Incontiguous Edges: {settings.incontiguous_edge_count}")
+            col.label(text=f"  - Zero Distance Edges: {settings.zero_edge_count}")
+            col.label(text=f"  - Zero Area Faces: {settings.zero_face_count}")
+            col.label(text=f"  - Overhanging Faces: {settings.overhang_face_count}")
+            # col.label(text=f"  - Thin Walls: {settings.thin_wall_count}")
+            col.label(text=f"  - Nonplanar Faces: {settings.nonplanar_face_indices}")
+
+            # call operator to highlight problem edges
+            box.operator("sprue.select_non_manifold", text="Select Non-Manifold Elements", icon='RESTRICT_SELECT_OFF')
+
         if settings.last_island_count > 0:
             row = box.row()
             if settings.last_island_count > 1:
