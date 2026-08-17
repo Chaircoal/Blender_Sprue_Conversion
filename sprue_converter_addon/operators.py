@@ -27,7 +27,7 @@ class SPRUE_OT_AnalyzeMesh(bpy.types.Operator):
         curvatures = utils.compute_face_curvature(bm)
 
         # Check if the active mesh is manifold
-        manifold_result = utils.check_mesh_manifold(bm)
+        manifold_result = utils.check_mesh_manifold(bm, obj)
 
         # Store non-manifold results for later use
         settings.is_watertight = manifold_result["is_watertight"]
@@ -38,8 +38,8 @@ class SPRUE_OT_AnalyzeMesh(bpy.types.Operator):
         settings.zero_edge_count = len(manifold_result["zero_edge_indices"])
         settings.zero_face_count = len(manifold_result["zero_face_indices"])
         settings.overhang_face_count = len(manifold_result["overhang_face_indices"])
-        # settings.thin_wall_count = len(manifold_result["thin_wall_indices"])
-        settings.nonplanar_face_indices = len(manifold_result["nonplanar_face_indices"])
+        settings.thin_wall_count = len(manifold_result["thin_wall_indices"])
+        settings.nonplanar_face_count = len(manifold_result["nonplanar_face_indices"])
 
         obj["_sprue_open_edge_indices"] = manifold_result["open_edge_indices"]
         obj["_sprue_non_manifold_edge_indices"] = manifold_result["non_manifold_edge_indices"]
@@ -48,7 +48,7 @@ class SPRUE_OT_AnalyzeMesh(bpy.types.Operator):
         obj["_sprue_zero_edge_indices"] = manifold_result["zero_edge_indices"]
         obj["_sprue_zero_face_indices"] = manifold_result["zero_face_indices"]
         obj["_sprue_overhang_face_indices"] = manifold_result["overhang_face_indices"]
-        # obj["_sprue_thin_wall_indices"] = manifold_result["thin_wall_indices"]
+        obj["_sprue_thin_wall_indices"] = manifold_result["thin_wall_indices"]
         obj["_sprue_nonplanar_face_indices"] = manifold_result["nonplanar_face_indices"]
 
         # Store curvatures in a custom property for later use
@@ -532,7 +532,7 @@ class SPRUE_OT_SelectNonManifold(bpy.types.Operator):
                 "_sprue_zero_edge_indices" in obj and
                 "_sprue_zero_face_indices" in obj and
                 "_sprue_overhang_face_indices" in obj and
-                # "_sprue_thin_wall_indices" in obj and
+                "_sprue_thin_wall_indices" in obj and
                 "_sprue_nonplanar_face_indices" in obj
             )
         return False
@@ -546,7 +546,7 @@ class SPRUE_OT_SelectNonManifold(bpy.types.Operator):
         zero_edge_indices = obj["_sprue_zero_edge_indices"]
         zero_face_indices = obj["_sprue_zero_face_indices"]
         overhang_face_indices = obj["_sprue_overhang_face_indices"]
-        # thin_wall_indices = obj["_sprue_thin_wall_indices"]
+        thin_wall_indices = obj["_sprue_thin_wall_indices"]
         nonplanar_face_indices = obj["_sprue_nonplanar_face_indices"]
 
         # change the active interaction mode to edit
@@ -584,8 +584,8 @@ class SPRUE_OT_SelectNonManifold(bpy.types.Operator):
             bm.faces[idx].select = True
         for idx in overhang_face_indices:
             bm.faces[idx].select = True
-        # for idx in thin_wall_indices:
-        #     bm.faces[idx].select = True
+        for idx in thin_wall_indices:
+            bm.faces[idx].select = True
         for idx in nonplanar_face_indices:
             bm.faces[idx].select = True
 

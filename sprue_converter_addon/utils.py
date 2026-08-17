@@ -4,6 +4,7 @@
 import math
 import bpy
 import bmesh
+import random
 from mathutils import Vector
 from mathutils.bvhtree import BVHTree
 
@@ -426,7 +427,7 @@ def add_gate_cylinder(collection, base_point, tip_point, diameter, name):
 
 
 # Master call function for all manifold checks
-def check_mesh_manifold(bm):
+def check_mesh_manifold(bm, obj):
     """
     Check the current mesh to ensure that it is manifold.
     This means that is ready and able to be 3D printed without problems
@@ -442,7 +443,7 @@ def check_mesh_manifold(bm):
     zero_edge_indices = get_zero_edge_indices(bm)
     zero_face_indices = get_zero_face_indices(bm)
     overhang_face_indices = get_overhang_face_indices(bm)
-    # thin_wall_indices = get_thin_wall_indices(bm)
+    thin_wall_indices = get_thin_wall_indices(obj)
     nonplanar_face_indices = get_nonplanar_face_indices(bm)
 
     # if all are 0 then the model is watertight and manifold
@@ -454,7 +455,7 @@ def check_mesh_manifold(bm):
         and len(zero_edge_indices) == 0
         and len(zero_face_indices) == 0
         and len(overhang_face_indices) == 0
-        # and len(thin_wall_indices) == 0
+        and len(thin_wall_indices) == 0
         and len(nonplanar_face_indices) == 0
     ):
         print("RESULT: Mesh is Watertight (Manifold)!")
@@ -472,7 +473,7 @@ def check_mesh_manifold(bm):
         zero_edge_indices = zero_edge_indices,
         zero_face_indices = zero_face_indices,
         overhang_face_indices = overhang_face_indices,
-        # thin_wall_indices = thin_wall_indices,
+        thin_wall_indices = thin_wall_indices,
         nonplanar_face_indices = nonplanar_face_indices
     )
 
@@ -579,30 +580,107 @@ def get_overhang_face_indices(bm, angle_overhang=45):
 
     return overhang_face_indices
 
+def bmesh_copy_from_object(obj, transform=True, triangulate=True):
+    """
+    Returns a transformed, triangulated copy of the object's mesh
+    """
+    me = obj.data
+    if obj.mode == "EDIT":
+        bm = bmesh.from_edit_mesh(me).copy()
+    else:
+        bm = bmesh.new()
+        bm.from_mesh(me)
 
-# def get_thin_wall_indices(bm, min_thickness=0.0015):
-#     """
-#     Get all too thin walls that exist on the current mesh
-#     https://docs.blender.org/api/current/mathutils.bvhtree.html
-#     """
-#     raycast_tree = BVHTree.FromBMesh(bm)
-#     start_offset = 0.0001
-#     self_hit = 0
-#
-#     thin_wall_indices = []
-#
-#     for face in bm.faces:
-#         norm = face.normal
-#         start_pos = face.calc_center_median() - (norm * start_offset)
-#         location, normal, index, distance = raycast_tree.ray_cast(start_pos, -norm, 1000.0)#min_thickness)
-#         if index == face.index:
-#             self_hit += 1
-#             # print("Self hit")
-#         if index is not None and index != face.index:
-#             print(distance)
-#             thin_wall_indices.append(face.index)
-#     print(str(self_hit) + "Self hits")
-#     return thin_wall_indices
+    if transform:
+        mat = obj.matrix_world.copy()
+        mat.translation.zero()
+        if not mat.is_identity:
+            bm.transform(mat)
+            bm.normal_update()
+
+    if triangulate:
+        bmesh.ops.triangulate(bm, faces=bm.faces)
+
+    return bm
+
+
+def face_points_random(face, num_points=6, margin= 0.05):
+    """
+    Returns random points within a face
+    """
+    random.seed(face.index)
+    uniform_args = 0.0 + margin, 1.0 - margin
+    verts = [v.co for v in face.verts]
+
+    for _ in range(num_points):
+        u1 = random.uniform(*uniform_args)
+        u2 = random.uniform(*uniform_args)
+        if (u1 + u2) > 1.0:
+            u1 = 1.0 - u1
+            u2 = 1.0 - u2
+        side1 = verts[1] - verts[0]
+        side2 = verts[2] - verts[0]
+        yield verts[0] + u1 * side1 + u2 * side2
+
+
+def get_thin_wall_indices(obj, min_thickness_mm=1.5):
+    """
+    Get all too thin walls that exist on the current mesh
+    https://docs.blender.org/api/current/mathutils.bvhtree.html
+    """
+    # get copy of bmesh
+    bm = bmesh_copy_from_object(obj, transform=True, triangulate=False)
+    bm.faces.ensure_lookup_table()
+
+    # get the origin of opposite face for selecting later
+    origin_index_of = {f: i for i, f in enumerate(bm.faces)}
+
+    ret = bmesh.ops.triangulate(bm, faces=bm.faces)
+    face_map = ret['face_map']
+    bm.faces.ensure_lookup_table()
+
+    context = bpy.context
+    layer = context.view_layer
+    scene_collection = context.layer_collection.collection
+
+    #Create a copy of mesh for use in calculations (Ew! Optimize later!)
+    mesh_temp = bpy.data.meshes.new(name="~thickness_check_tmp~")
+    bm.to_mesh(mesh_temp)
+    obj_temp = bpy.data.objects.new(name=mesh_temp.name, object_data=mesh_temp)
+    scene_collection.objects.link(obj_temp)
+    layer.update()
+
+    ray_cast = obj_temp.ray_cast
+    eps_bias = 0.0001
+
+    thin_wall_orig_indices = set()
+    bm_faces_new = bm.faces[:]
+
+    for face in bm_faces_new:
+        norm = face.normal
+        norm_start = norm * eps_bias
+        norm_end = norm * min_thickness_mm
+
+        for point in face_points_random(face):
+            point_a = point - norm_start
+            point_b = point - norm_end
+            point_dir = point_b - point_a
+
+            hit_found, hit_location, hit_normal, index = ray_cast(point_a, point_dir, distance=point_dir.length)
+
+            if hit_found:
+                for f in (face, bm_faces_new[index]):
+                    f_org = face_map.get(f, f)
+                    thin_wall_orig_indices.add(origin_index_of[f_org])
+
+    # Unlink/remove items to free memory
+    bm.free()
+    scene_collection.objects.unlink(obj_temp)
+    bpy.data.objects.remove(obj_temp)
+    bpy.data.meshes.remove(mesh_temp)
+    layer.update()
+
+    return list(thin_wall_orig_indices)
 
 
 def get_nonplanar_face_indices(bm, threshold=5):

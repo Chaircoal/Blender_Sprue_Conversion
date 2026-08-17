@@ -36,25 +36,39 @@ class SPRUE_PT_MainPanel(bpy.types.Panel):
         col.prop(settings, "curvature_threshold", slider=True)
         col.operator("sprue.analyze_mesh", icon='HIDE_OFF')
 
-        if settings.is_watertight:
-            row = box.row()
-            row.label(text="Model is watertight", icon='CHECKMARK')
-        else:
-            col = box.column(align=True)
-            col.alert = True
-            col.label(text="Model not watertight!", icon='ERROR')
-            col.label(text=f"  - Open Edges: {settings.open_edge_count}")
-            col.label(text=f"  - Non-manifold Edges: {settings.non_manifold_edge_count}")
-            col.label(text=f"  - Non-manifold Vertices: {settings.non_manifold_vert_count}")
-            col.label(text=f"  - Incontiguous Edges: {settings.incontiguous_edge_count}")
-            col.label(text=f"  - Zero Distance Edges: {settings.zero_edge_count}")
-            col.label(text=f"  - Zero Area Faces: {settings.zero_face_count}")
-            col.label(text=f"  - Overhanging Faces: {settings.overhang_face_count}")
-            # col.label(text=f"  - Thin Walls: {settings.thin_wall_count}")
-            col.label(text=f"  - Nonplanar Faces: {settings.nonplanar_face_indices}")
+        # DFM Checks for report
+        check_items = [
+            ("Open Edges", "open_edge_count"),
+            ("Non-manifold Edges", "non_manifold_edge_count"),
+            ("Non-manifold Vertices", "non_manifold_vert_count"),
+            ("Incontiguous Edges", "incontiguous_edge_count"),
+            ("Zero Distance Edges", "zero_edge_count"),
+            ("Zero Area Faces", "zero_face_count"),
+            ("Overhanging Faces", "overhang_face_count"),
+            ("Thin Walls", "thin_wall_count"),
+            ("Nonplanar Faces", "nonplanar_face_count"),
+        ]
 
+        has_issues = False
+
+        # Check each check
+        for label, attr_name in check_items:
+            value = getattr(settings, attr_name, 0)
+
+            if value > 0:
+                if not has_issues:
+                    col.alert = True
+                    col.label(text="Model not watertight!", icon='ERROR')
+                    col.label(text="Issues Detected:")
+                    has_issues = True
+
+                col.label(text=f" - {label}: {value}")
+
+        if has_issues:
             # call operator to highlight problem edges
             box.operator("sprue.select_non_manifold", text="Select Non-Manifold Elements", icon='RESTRICT_SELECT_OFF')
+        else:
+            col.label(text="Model is watertight, No issues present", icon='CHECKMARK')
 
         if settings.last_island_count > 0:
             row = box.row()

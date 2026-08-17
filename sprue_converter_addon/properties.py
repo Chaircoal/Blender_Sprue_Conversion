@@ -99,12 +99,12 @@ class SprueToolSettings(bpy.types.PropertyGroup):
         description="Number of overhanging faces present on the mesh",
         default=0, min=0
     )
-    # thin_wall_count: IntProperty(
-    #     name="Thin Walls",
-    #     description="Number of thin walls present on the mesh",
-    #     default=0, min=0
-    # )
-    nonplanar_face_indices: IntProperty(
+    thin_wall_count: IntProperty(
+        name="Thin Walls",
+        description="Number of thin walls present on the mesh",
+        default=0, min=0
+    )
+    nonplanar_face_count: IntProperty(
         name="Non-planar Faces",
         description="Number of non-planar faces present on the mesh",
         default=0, min=0
