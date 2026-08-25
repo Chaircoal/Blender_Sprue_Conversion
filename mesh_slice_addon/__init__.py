@@ -23,6 +23,7 @@ from . import ui
 
 if _needs_reload:
     import importlib
+    cache = importlib.reload(cache)
     exceptions = importlib.reload(exceptions)
     utils = importlib.reload(utils)
     properties = importlib.reload(properties)
@@ -31,11 +32,13 @@ if _needs_reload:
 
 
 CLASSES = (
-    properties.MeshSlicingProperties,
+    properties.MeshSlicerProperties,
     operators.MESH_OT_get_sdf,
     operators.VIEW3D_OT_draw_foreground,
     operators.MESH_OT_generate_slice_boundaries,
     operators.MESH_OT_slice_mesh,
+    operators.OBJECT_OT_lay_flat,
+    operators.MESH_OT_fill_holes,
     ui.VIEW3D_PT_mesh_slicing,
 )
 
@@ -43,13 +46,13 @@ def register():
     for cls in CLASSES:
         bpy.utils.register_class(cls)
 
-    bpy.types.Scene.mesh_slice_settings = bpy.props.PointerProperty(
-        type=properties.MeshSlicingProperties
+    bpy.types.Scene.mesh_slicer_properties = bpy.props.PointerProperty(
+        type=properties.MeshSlicerProperties
     )
 
 def unregister():
-    if hasattr(bpy.types.Scene, "mesh_slice_settings"):
-        del bpy.types.Scene.mesh_slice_settings
+    if hasattr(bpy.types.Scene, "mesh_slicer_properties"):
+        del bpy.types.Scene.mesh_slicer_properties
 
     for cls in reversed(CLASSES):
         bpy.utils.unregister_class(cls)

@@ -1,0 +1,33 @@
+schema_version = "1.0.0"
+
+id = "mesh_slicer"
+version = "1.0.0"
+name = "Mesh Slicer"
+tagline = "Slices meshes into individual objects. Based on the work of..."
+maintainer = "Kaitlyn Humphrey"
+type = "add-on"
+
+website = "https://github.com/Chaircoal/Blender_Sprue_Conversion/blob/main/README.md"
+
+# # Optional: tag list defined by Blender and server, see:
+# # https://docs.blender.org/manual/en/latest/advanced/extensions/tags.html
+tags = ["Mesh", "Object"]
+
+blender_version_min = "5.2.0"
+
+# License conforming to https://spdx.org/licenses/ (use "SPDX: prefix)
+# https://docs.blender.org/manual/en/latest/advanced/extensions/licenses.html
+license = [
+  "SPDX:GPL-3.0-or-later",
+]
+
+# # Optional: list of supported platforms. If omitted, the extension will be available in all operating systems.
+# platforms = ["windows-x64", "macos-arm64", "linux-x64"]
+# # Other supported platforms: "windows-arm64", "macos-x64"
+
+# # Optional: bundle 3rd party Python modules.
+# # https://docs.blender.org/manual/en/latest/advanced/extensions/python_wheels.html
+# wheels = [
+#   "./wheels/hexdump-3.3-py3-none-any.whl",
+#   "./wheels/jsmin-3.0.1-py3-none-any.whl",
+# ]
