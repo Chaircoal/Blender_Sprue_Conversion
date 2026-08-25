@@ -95,6 +95,25 @@ class SPRUE_PT_MainPanel(bpy.types.Panel):
                 op.plane_index = i
 
         layout.separator()
+        
+        # ── Optional: Gate priority heatmap (Blender's native Weight Paint tool)
+        box = layout.box()
+        box.label(text="Gate priority (optional)", icon='WPAINT_HLT')
+
+        if context.mode == 'PAINT_WEIGHT':
+            box.label(text="Painting — Red = high priority, Blue = low", icon='INFO')
+            row = box.row()
+            row.scale_y = 1.4
+            row.operator("sprue.finish_priority_paint", icon='CHECKMARK', text="Finish painting")
+        else:
+            box.label(text="Brush on areas that should get a gate.", icon='INFO')
+            row = box.row()
+            row.operator("sprue.start_priority_paint", icon='BRUSH_DATA', text="Paint gate priority")
+            if settings.last_priority_painted > 0:
+                box.label(text=f"{settings.last_priority_painted} vertex(es) marked priority")
+                box.operator("sprue.clear_priority_paint", icon='TRASH', text="Clear priority map")
+
+        layout.separator()
 
         # ── Step 4: Build sprue frame
         box = layout.box()

@@ -99,45 +99,6 @@ def curvature_to_color(value):
     return (r, g, b, 1.0)
 
 
-def apply_heatmap_vertex_colors(obj, curvatures):
-    """
-    Write per-face curvature into a vertex colour attribute so it's
-    visible in the viewport (Material Preview or Rendered mode).
-    """
-    mesh = obj.data
-
-    # Blender 3.x uses attributes for vertex colours
-    color_layer_name = "SprueCurvature"
-    if color_layer_name in mesh.attributes:
-        mesh.attributes.remove(mesh.attributes[color_layer_name])
-
-    mesh.attributes.new(
-        name=color_layer_name,
-        type='FLOAT_COLOR',
-        domain='CORNER'
-    )
-    color_attr = mesh.attributes[color_layer_name]
-
-    # Loop over polygons and their loops
-    bm_tmp = bmesh.new()
-    bm_tmp.from_mesh(mesh)
-    bm_tmp.faces.ensure_lookup_table()
-
-    loop_index = 0
-    for poly in mesh.polygons:
-        curv = curvatures[poly.index] if poly.index < len(curvatures) else 0.0
-        color = curvature_to_color(curv)
-        for _ in poly.loop_indices:
-            color_attr.data[loop_index].color = color
-            loop_index += 1
-
-    bm_tmp.free()
-
-    # Tell Blender to display this colour attribute
-    mesh.color_attributes.render_color_index = mesh.color_attributes.find(color_layer_name)
-    mesh.color_attributes.active_color_index = mesh.color_attributes.find(color_layer_name)
-
-
 def find_slice_candidates(bm, curvatures, threshold=0.25, num_planes=6):
     """
     Propose axis-aligned slice planes that pass through low-curvature regions.
@@ -263,6 +224,86 @@ def simulate_cut_creates_island(bm, z_cut, margin=0.01):
 
     # If either half has more than 1 connected group, we'd create an island
     return len(groups_above) > 1 or len(groups_below) > 1
+
+
+#  GATE-PRIORITY PAINTING (weight paint based)
+# Users brush priority values onto mesh using Blender's built-in Weight Paint tool.
+# We save the created vertex group so we can read the weights back out later.
+
+PRIORITY_VG_NAME = "SpruePriority"
+
+def apply_heatmap_vertex_colors(obj, curvatures):
+    """
+    Write per-face curvature into a vertex colour attribute so it's
+    visible in the viewport (while in Object/Rendered mode).
+    """
+    mesh = obj.data
+
+    color_layer_name = "SprueCurvature"
+    if color_layer_name in mesh.attributes:
+        mesh.attributes.remove(mesh.attributes[color_layer_name])
+
+    mesh.attributes.new(
+        name=color_layer_name,
+        type='FLOAT_COLOR',
+        domain='CORNER'
+    )
+    color_attr = mesh.attributes[color_layer_name]
+
+    # Loop over polygons and their loops
+    bm_tmp = bmesh.new()
+    bm_tmp.from_mesh(mesh)
+    bm_tmp.faces.ensure_lookup_table()
+
+    loop_index = 0
+    for poly in mesh.polygons:
+        curv = curvatures[poly.index] if poly.index < len(curvatures) else 0.0
+        color = curvature_to_color(curv)
+        for _ in poly.loop_indices:
+            color_attr.data[loop_index].color = color
+            loop_index += 1
+
+    bm_tmp.free()
+
+    # display assigned colour attribute
+    mesh.color_attributes.render_color_index = mesh.color_attributes.find(color_layer_name)
+    mesh.color_attributes.active_color_index = mesh.color_attributes.find(color_layer_name)
+    
+    
+def ensure_priority_vertex_group(obj):
+    """
+    Get or create the vertex group used to store gate-priority weights.
+    A new group is zeroed on every vertex so the entire mesh
+    reads as 'blue' (low priority) in Weight Paint mode until
+    the user brushes over it, rather than showing unweighted grey.
+    """
+    vg = obj.vertex_groups.get(PRIORITY_VG_NAME)
+    if vg is None:
+        vg = obj.vertex_groups.new(name=PRIORITY_VG_NAME)
+        all_indices = list(range(len(obj.data.vertices)))
+        vg.add(all_indices, 0.0, 'REPLACE')
+    return vg
+
+
+def get_priority_values(obj):
+    #TODO: connect to Cole's find_best_gate_face function
+    """
+    Read the priority vertex group back out as a list of floats,
+    one entry per vertex (0.0 for any vertex not in the group).
+    Returns [] if the mesh has no priority group yet.
+    """
+    vg = obj.vertex_groups.get(PRIORITY_VG_NAME)
+    if vg is None:
+        return []
+
+    values = [0.0] * len(obj.data.vertices)
+    for v in obj.data.vertices:
+        for g in v.groups:
+            if g.group == vg.index:
+                values[v.index] = g.weight
+                break
+    return values
+
 
 #  SPRUE FRAME GENERATION
 def find_best_gate_face(obj, toward_direction):
