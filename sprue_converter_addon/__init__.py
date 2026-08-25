@@ -44,6 +44,7 @@ CLASSES = [
     operators.SPRUE_OT_ClearPriorityPaint,
     operators.SPRUE_OT_ClearAll,
     operators.SPRUE_OT_BuildSprueFrame,
+    operators.SPRUE_OT_SelectNonManifold,
     ui.SPRUE_PT_MainPanel,
 ]
 

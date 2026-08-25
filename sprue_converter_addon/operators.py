@@ -26,6 +26,31 @@ class SPRUE_OT_AnalyzeMesh(bpy.types.Operator):
         bm = utils.get_bmesh(obj)
         curvatures = utils.compute_face_curvature(bm)
 
+        # Check if the active mesh is manifold
+        manifold_result = utils.check_mesh_manifold(bm, obj)
+
+        # Store non-manifold results for later use
+        settings.is_watertight = manifold_result["is_watertight"]
+        settings.open_edge_count = len(manifold_result["open_edge_indices"])
+        settings.non_manifold_edge_count = len(manifold_result["non_manifold_edge_indices"])
+        settings.non_manifold_vert_count = len(manifold_result["non_manifold_vert_indices"])
+        settings.incontiguous_edge_count = len(manifold_result["incontiguous_edge_indices"])
+        settings.zero_edge_count = len(manifold_result["zero_edge_indices"])
+        settings.zero_face_count = len(manifold_result["zero_face_indices"])
+        settings.overhang_face_count = len(manifold_result["overhang_face_indices"])
+        settings.thin_wall_count = len(manifold_result["thin_wall_indices"])
+        settings.nonplanar_face_count = len(manifold_result["nonplanar_face_indices"])
+
+        obj["_sprue_open_edge_indices"] = manifold_result["open_edge_indices"]
+        obj["_sprue_non_manifold_edge_indices"] = manifold_result["non_manifold_edge_indices"]
+        obj["_sprue_non_manifold_vert_indices"] = manifold_result["non_manifold_vert_indices"]
+        obj["_sprue_incontiguous_edge_indices"] = manifold_result["incontiguous_edge_indices"]
+        obj["_sprue_zero_edge_indices"] = manifold_result["zero_edge_indices"]
+        obj["_sprue_zero_face_indices"] = manifold_result["zero_face_indices"]
+        obj["_sprue_overhang_face_indices"] = manifold_result["overhang_face_indices"]
+        obj["_sprue_thin_wall_indices"] = manifold_result["thin_wall_indices"]
+        obj["_sprue_nonplanar_face_indices"] = manifold_result["nonplanar_face_indices"]
+
         # Store curvatures in a custom property for later use
         obj["_sprue_curvatures"] = curvatures
 
@@ -596,4 +621,84 @@ class SPRUE_OT_BuildSprueFrame(bpy.types.Operator):
             f"Sprue frame built with {len(pieces)} piece(s) and "
             f"{len(gate_objects)} gate(s). Object: 'Sprue_Frame'."
         )
+        return {'FINISHED'}
+
+class SPRUE_OT_SelectNonManifold(bpy.types.Operator):
+    bl_idname = "sprue.select_non_manifold"
+    bl_label = "Select Non-Manifold Elements"
+
+    # Check if the object exists and has our custom data
+    @classmethod
+    def poll(cls, context):
+        obj = context.active_object
+        if obj is not None and obj.type == 'MESH':
+            return (
+                "_sprue_open_edge_indices" in obj and
+                "_sprue_non_manifold_edge_indices" in obj and
+                "_sprue_non_manifold_vert_indices" in obj and
+                "_sprue_incontiguous_edge_indices" in obj and
+                "_sprue_zero_edge_indices" in obj and
+                "_sprue_zero_face_indices" in obj and
+                "_sprue_overhang_face_indices" in obj and
+                "_sprue_thin_wall_indices" in obj and
+                "_sprue_nonplanar_face_indices" in obj
+            )
+        return False
+
+    def execute(self, context):
+        obj = context.active_object
+        open_edge_indices = obj["_sprue_open_edge_indices"]
+        non_manifold_edge_indices = obj["_sprue_non_manifold_edge_indices"]
+        non_manifold_vert_indices = obj["_sprue_non_manifold_vert_indices"]
+        incontiguous_edge_indices = obj["_sprue_incontiguous_edge_indices"]
+        zero_edge_indices = obj["_sprue_zero_edge_indices"]
+        zero_face_indices = obj["_sprue_zero_face_indices"]
+        overhang_face_indices = obj["_sprue_overhang_face_indices"]
+        thin_wall_indices = obj["_sprue_thin_wall_indices"]
+        nonplanar_face_indices = obj["_sprue_nonplanar_face_indices"]
+
+        # change the active interaction mode to edit
+        bpy.ops.object.mode_set(mode='EDIT')
+
+        # set selection mode to edges and vertices (Verts = True, Edges = True, Faces = True)
+        context.tool_settings.mesh_select_mode = (True, True, True)
+
+        # get current bmesh
+        bm = utils.get_bmesh(obj)
+        bm.edges.ensure_lookup_table()
+        bm.verts.ensure_lookup_table()
+        bm.faces.ensure_lookup_table()
+
+        # deselect everything
+        for edge in bm.edges:
+            edge.select = False
+        for vert in bm.verts:
+            vert.select = False
+        for face in bm.faces:
+            face.select = False
+
+        # loop through the list of problem areas and highlight them
+        for idx in open_edge_indices:
+            bm.edges[idx].select = True
+        for idx in non_manifold_edge_indices:
+            bm.edges[idx].select = True
+        for idx in non_manifold_vert_indices:
+            bm.verts[idx].select = True
+        for idx in incontiguous_edge_indices:
+            bm.edges[idx].select = True
+        for idx in zero_edge_indices:
+            bm.edges[idx].select = True
+        for idx in zero_face_indices:
+            bm.faces[idx].select = True
+        for idx in overhang_face_indices:
+            bm.faces[idx].select = True
+        for idx in thin_wall_indices:
+            bm.faces[idx].select = True
+        for idx in nonplanar_face_indices:
+            bm.faces[idx].select = True
+
+        # update bmesh with new selection
+        bmesh.update_edit_mesh(obj.data)
+
+        self.report({'INFO'},"Selected Problem Areas")
         return {'FINISHED'}

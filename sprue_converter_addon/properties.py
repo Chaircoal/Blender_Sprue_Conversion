@@ -63,3 +63,55 @@ class SprueToolSettings(bpy.types.PropertyGroup):
         description="Minimum gap between pieces in the grid layout (Blender units)",
         default=0.4, min=0.1, max=3.0, step=1,
     )
+
+    # Model manifold settings
+    is_watertight: BoolProperty(
+        name="Watertight",
+        description="Indicates whether the mesh is closed and fully manifold",
+        default=False,
+    )
+    open_edge_count: IntProperty(
+        name="Open Edges",
+        description="Number of boundary/hole edges present on the mesh",
+        default=0, min=0
+    )
+    non_manifold_edge_count: IntProperty(
+        name="Non-Manifold Edges",
+        description="Number of edges connected to more than two faces",
+        default=0, min=0
+    )
+    non_manifold_vert_count: IntProperty(
+        name="Non-Manifold Vertices",
+        description="Number of non-manifold vertices present on the mesh",
+        default=0, min=0
+    )
+    incontiguous_edge_count: IntProperty(
+        name="Incontiguous Edges",
+        description="Number of incontiguous edges present on the mesh",
+        default=0, min=0
+    )
+    zero_edge_count: IntProperty(
+        name="Zero Distance Edges",
+        description="Number of edges where the distance between the two endpoints is virtually zero",
+        default=0, min=0
+    )
+    zero_face_count: IntProperty(
+        name="Zero Face Areas",
+        description="Number of zero faces areas present on the mesh",
+        default=0, min=0
+    )
+    overhang_face_count: IntProperty(
+        name="Overhanging Faces",
+        description="Number of overhanging faces present on the mesh",
+        default=0, min=0
+    )
+    thin_wall_count: IntProperty(
+        name="Thin Walls",
+        description="Number of thin walls present on the mesh",
+        default=0, min=0
+    )
+    nonplanar_face_count: IntProperty(
+        name="Non-planar Faces",
+        description="Number of non-planar faces present on the mesh",
+        default=0, min=0
+    )
