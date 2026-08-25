@@ -24,6 +24,12 @@ class SprueToolSettings(bpy.types.PropertyGroup):
     last_island_count: IntProperty(default=0)
     last_candidate_count: IntProperty(default=0)
 
+    # GATE PRIORITY PAINTING
+    last_priority_painted: IntProperty(
+        default=0,
+        description="Number of vertices with a painted priority weight > 0, updated when painting finishes",
+    )
+
 
     # SPRUE FRAME SETTINGS (NEEDS TWEAKING MOST LIKELY)
     # - Can't get gates to orient properly yet, so this is a work in progress.
