@@ -1,0 +1,6 @@
+mesh_slice_addon/pyrefly.toml
+sliced_mesh_demo.blend1
+mesh_slice_addon/__pycache__
+mesh_slice_addon/.venv
+mesh_slice_addon/requirements.txt
+sliced_mesh_demo.blend
