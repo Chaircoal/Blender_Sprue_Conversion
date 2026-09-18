@@ -410,7 +410,7 @@ class SPRUE_OT_ClearAll(bpy.types.Operator):
                 obj.vertex_groups.remove(priority_vg)
 
         for ob in list(bpy.data.objects):
-            if ob.name.startswith("_SpruePlane_") or ob.name.startswith("_SprueBoolean_"):
+            if ob.name.startswith(("_SpruePlane_", "_SprueBoolean_", "_SprueWall_", "_SprueBridge_", "_Gate_")):
                 bpy.data.objects.remove(ob, do_unlink=True)
 
         settings = context.scene.sprue_settings
@@ -424,8 +424,12 @@ class SPRUE_OT_ClearAll(bpy.types.Operator):
 
 class SPRUE_OT_BuildSprueFrame(bpy.types.Operator):
     """
-    Lay selected mesh pieces flat in a grid, build a rectangular runner frame
-    around them, and attach gate stubs at each piece's lowest-curvature outward face.
+    Lay selected mesh pieces out in a grid, orienting each one so its painted
+    gate-priority vertices land on a shared horizontal plane (preferring the
+    rotation that leaves the least surface area vertical), build a rectangular
+    outer runner frame, surround each piece with its own individual runner
+    wall ring so a gate can be attached from any side, and attach gate stubs
+    at each piece's painted priority location.
     Select all pieces you want on the sprue before running.
     """
     bl_idname = "sprue.build_frame"
@@ -446,55 +450,90 @@ class SPRUE_OT_BuildSprueFrame(bpy.types.Operator):
             self.report({'ERROR'}, "Select at least one mesh object.")
             return {'CANCELLED'}
 
-        # Step 1. Lay pieces flat and tile in a grid
-        # Apply rotation so the largest face is Z-up, then tile on the XY plane.
-
         cols = math.ceil(math.sqrt(len(pieces)))
         spacing = settings.piece_spacing
+        min_weight = settings.gate_priority_min_weight
 
-        # First pass: orient flat and measure max extents per piece
-        cell_sizes = []
+        # Step 1. Orient each piece so its painted gate-priority vertices end
+        # up coplanar on a shared horizontal plane (world Z), preferring the
+        # rotation that leaves the least surface area vertical. Pieces with
+        # no painted priority are just oriented for minimum vertical area.
+        piece_info = []
+        any_missing_priority = False
+
         for obj in pieces:
-            # Apply current transforms so dimensions are accurate
             bpy.ops.object.select_all(action='DESELECT')
             obj.select_set(True)
             context.view_layer.objects.active = obj
-            bpy.ops.object.transform_apply(location=False, rotation=True, scale=True)
-            dims = obj.dimensions
-            cell_sizes.append((dims.x, dims.y))
 
-        # Compute grid cell size (use the largest piece as the cell template)
-        max_cell_x = max(c[0] for c in cell_sizes)
-        max_cell_y = max(c[1] for c in cell_sizes)
+            # Bake any pre-existing rotation/scale so local mesh data reflects
+            # the piece's actual current shape.
+            bpy.ops.object.transform_apply(location=False, rotation=True, scale=True)
+
+            bm = utils.get_bmesh(obj)
+            axis, plane_point_local, has_priority = utils.compute_gate_plane_axis(
+                obj, bm, min_weight=min_weight
+            )
+            if obj.mode != 'EDIT':
+                bm.free()
+
+            if not has_priority:
+                any_missing_priority = True
+
+            target = Vector((0.0, 0.0, 1.0))
+            if axis.dot(target) < 0:
+                axis = -axis
+            quat = axis.rotation_difference(target)
+
+            # Predict where the gate plane will land in local space once this
+            # rotation is baked in, so we can zero it out to Z=0 below.
+            rotated_plane_z = (quat @ plane_point_local).z
+
+            obj.rotation_mode = 'QUATERNION'
+            obj.rotation_quaternion = quat
+            bpy.ops.object.transform_apply(location=False, rotation=True, scale=False)
+
+            piece_info.append({
+                'obj': obj,
+                'size': (obj.dimensions.x, obj.dimensions.y),
+                'plane_z': rotated_plane_z,
+            })
+
+        if any_missing_priority:
+            self.report(
+                {'WARNING'},
+                "One or more pieces have no painted gate priority; those were "
+                "oriented for minimum vertical area instead."
+            )
+
+        # Position each piece in a grid, cancelling out its own Z so every
+        # piece's gate plane lands at world Z=0 -- the same plane the runner
+        # frame sits on.
+        max_cell_x = max(p['size'][0] for p in piece_info)
+        max_cell_y = max(p['size'][1] for p in piece_info)
         cell_x = max_cell_x + spacing
         cell_y = max_cell_y + spacing
 
-        # Position each piece
-        for idx, obj in enumerate(pieces):
+        for idx, info in enumerate(piece_info):
+            obj = info['obj']
             row = idx // cols
             col = idx % cols
             target_x = col * cell_x
             target_y = row * cell_y
 
-            # Move piece so its bottom (Z min) sits at Z=0, centred in its cell
             bpy.ops.object.select_all(action='DESELECT')
             obj.select_set(True)
             context.view_layer.objects.active = obj
 
-            # Centre piece so its Z midpoint sits at Z=0
-            zs = [(obj.matrix_world @ v.co).z for v in obj.data.vertices]
-            z_center = (min(zs) + max(zs)) / 2.0
-            obj.location.z -= z_center
+            obj.location.z = -info['plane_z']
 
-            # Centre in XY cell
             bbox_centre_x = (obj.bound_box[0][0] + obj.bound_box[6][0]) / 2
             bbox_centre_y = (obj.bound_box[0][1] + obj.bound_box[6][1]) / 2
             obj.location.x = target_x - bbox_centre_x + cell_x / 2
             obj.location.y = target_y - bbox_centre_y + cell_y / 2
 
-        # Step 2. Compute frame bounds
-        # After placement, get the world-space bounding box of all pieces combined.
-
+        # Step 2. Compute outer frame bounds from the combined world-space
+        # bounding box of all pieces.
         all_world_verts = []
         for obj in pieces:
             mat = obj.matrix_world
@@ -507,17 +546,14 @@ class SPRUE_OT_BuildSprueFrame(bpy.types.Operator):
         pad = settings.frame_padding
         fw = settings.frame_width
         fh = settings.frame_height
+        frame_z = 0.0
 
-        # Inner edges of the frame (with padding from piece extents)
         x_min = min(xs) - pad
         x_max = max(xs) + pad
         y_min = min(ys) - pad
         y_max = max(ys) + pad
 
-        # Frame centred at Z=0 to align with pieces
-        frame_z = 0.0
-
-        # Step 3. Build frame mesh
+        # Step 3. Build the outer frame mesh.
         frame_bm = bmesh.new()
         utils.make_frame_mesh(frame_bm, x_min, x_max, y_min, y_max, fw, fh)
 
@@ -530,86 +566,115 @@ class SPRUE_OT_BuildSprueFrame(bpy.types.Operator):
         frame_obj.location = (0, 0, frame_z)
         context.collection.objects.link(frame_obj)
 
-        # Step 4. Add gate stubs
-        gate_objects = []
-        frame_centre = Vector((
-            (x_min + x_max) / 2,
-            (y_min + y_max) / 2,
-            frame_z,
-        ))
+        # Step 4. Surround each piece with its own individual runner wall
+        # ring so a gate can be attached from any side, then bridge that ring
+        # back into the main outer frame.
+        piece_wall_pad = settings.piece_wall_padding
+        pw = settings.piece_wall_width
+        ph = settings.piece_wall_height
+
+        wall_objects = []
+        bridge_objects = []
+        piece_bounds = {}
 
         for idx, obj in enumerate(pieces):
-            piece_centre = Vector((
-                (obj.bound_box[0][0] + obj.bound_box[6][0]) / 2 + obj.location.x,
-                (obj.bound_box[0][1] + obj.bound_box[6][1]) / 2 + obj.location.y,
-                obj.location.z + obj.dimensions.z / 2,
-            ))
+            world_verts = [obj.matrix_world @ v.co for v in obj.data.vertices]
+            pxs = [v.x for v in world_verts]
+            pys = [v.y for v in world_verts]
+            px_min, px_max = min(pxs) - piece_wall_pad, max(pxs) + piece_wall_pad
+            py_min, py_max = min(pys) - piece_wall_pad, max(pys) + piece_wall_pad
+            piece_bounds[obj.name] = (px_min, px_max, py_min, py_max)
 
-            # Direction from piece centre toward nearest frame edge
-            toward = piece_centre - frame_centre
-            toward.z = 0  # keep horizontal
-            if toward.length < 0.001:
-                toward = Vector((1, 0, 0))
+            wall_bm = bmesh.new()
+            utils.make_frame_mesh(wall_bm, px_min, px_max, py_min, py_max, pw, ph)
+            wall_mesh = bpy.data.meshes.new(f"_SprueWall_{idx:02d}_Mesh")
+            wall_bm.to_mesh(wall_mesh)
+            wall_bm.free()
+            wall_mesh.update()
+            wall_obj = bpy.data.objects.new(f"_SprueWall_{idx:02d}_{obj.name}", wall_mesh)
+            wall_obj.location = (0, 0, frame_z)
+            context.collection.objects.link(wall_obj)
+            wall_objects.append(wall_obj)
 
-            gate_info = utils.find_best_gate_face(obj, toward)
+            # Bridge this ring to whichever outer-frame edge is nearest.
+            wx_min, wx_max = px_min - pw, px_max + pw
+            wy_min, wy_max = py_min - pw, py_max + pw
 
-            if gate_info is None:
+            gap_left = wx_min - x_min
+            gap_right = x_max - wx_max
+            gap_bottom = wy_min - y_min
+            gap_top = y_max - wy_max
+            min_gap = min(gap_left, gap_right, gap_bottom, gap_top)
+
+            wall_x_mid = (wx_min + wx_max) / 2.0
+            wall_y_mid = (wy_min + wy_max) / 2.0
+
+            if min_gap == gap_left:
+                bridge_from = Vector((wx_min, wall_y_mid, frame_z))
+                bridge_to = Vector((x_min, wall_y_mid, frame_z))
+            elif min_gap == gap_right:
+                bridge_from = Vector((wx_max, wall_y_mid, frame_z))
+                bridge_to = Vector((x_max, wall_y_mid, frame_z))
+            elif min_gap == gap_bottom:
+                bridge_from = Vector((wall_x_mid, wy_min, frame_z))
+                bridge_to = Vector((wall_x_mid, y_min, frame_z))
+            else:
+                bridge_from = Vector((wall_x_mid, wy_max, frame_z))
+                bridge_to = Vector((wall_x_mid, y_max, frame_z))
+
+            bridge_obj = utils.add_runner_bar(
+                context.collection, bridge_from, bridge_to, min(pw, fw), min(ph, fh),
+                f"_SprueBridge_{idx:02d}_{obj.name}",
+            )
+            if bridge_obj:
+                bridge_objects.append(bridge_obj)
+
+        # Step 5. Attach each piece to its own wall ring with a gate stub at
+        # each painted gate-priority region (or the best outward face if
+        # nothing was painted).
+        gate_objects = []
+        max_gates = settings.max_gates_per_piece
+
+        for idx, obj in enumerate(pieces):
+            px_min, px_max, py_min, py_max = piece_bounds[obj.name]
+
+            gate_infos = utils.find_gate_faces(
+                obj, toward_direction=None, min_weight=min_weight, max_gates=max_gates
+            )
+            if not gate_infos:
                 self.report({'WARNING'}, f"Could not find gate face for '{obj.name}', skipping.")
                 continue
 
-            face_center_world, face_normal_world = gate_info
+            for g, (face_center_world, face_normal_world) in enumerate(gate_infos):
+                gate_base = utils.nearest_wall_point(
+                    face_center_world, px_min, px_max, py_min, py_max, ph / 2.0
+                )
+                gate_tip = face_center_world
 
-            # Step 5. Find where the gate meets the frame
-            # Project face_center_world horizontally to the nearest inner face of the frame bar.
-            # The four inner edges in world XY are at x_min, x_max, y_min, y_max,
-            # pick whichever is closest to the face centre so the gate runs the shortest possible path.
+                gate_obj = utils.add_gate_cylinder(
+                    context.collection,
+                    gate_base,
+                    gate_tip,
+                    settings.gate_diameter,
+                    f"_Gate_{idx:02d}_{g:02d}_{obj.name}",
+                )
+                if gate_obj:
+                    gate_objects.append(gate_obj)
 
-            fx, fy = face_center_world.x, face_center_world.y
-
-            # Clamp gate Z to the frame's height range so it always touches a face of the bar rather than missing above or below it.
-            half_fh = fh / 2.0
-            gate_z = max(-half_fh, min(half_fh, face_center_world.z))
-
-            dist_left = fx - x_min
-            dist_right = x_max - fx
-            dist_bottom = fy - y_min
-            dist_top = y_max - fy
-
-            min_dist = min(dist_left, dist_right, dist_bottom, dist_top)
-
-            if min_dist == dist_left:
-                gate_base = Vector((x_min, fy, gate_z))
-            elif min_dist == dist_right:
-                gate_base = Vector((x_max, fy, gate_z))
-            elif min_dist == dist_bottom:
-                gate_base = Vector((fx, y_min, gate_z))
-            else:
-                gate_base = Vector((fx, y_max, gate_z))
-
-            gate_tip = face_center_world
-
-            gate_obj = utils.add_gate_cylinder(
-                context.collection,
-                gate_base,
-                gate_tip,
-                settings.gate_diameter,
-                f"_Gate_{idx:02d}_{obj.name}",
-            )
-            if gate_obj:
-                gate_objects.append(gate_obj)
-
-        # Step 6. Join gates into the frame object
-        if gate_objects:
+        # Step 6. Join the outer frame, all wall rings, bridges and gates
+        # into one final Sprue_Frame object.
+        to_join = wall_objects + bridge_objects + gate_objects
+        if to_join:
             bpy.ops.object.select_all(action='DESELECT')
             frame_obj.select_set(True)
-            for g in gate_objects:
-                g.select_set(True)
+            for o in to_join:
+                o.select_set(True)
             context.view_layer.objects.active = frame_obj
             bpy.ops.object.join()
             frame_obj = context.active_object
             frame_obj.name = "Sprue_Frame"
 
-        # Step 7. Reselect pieces + frame for visibility
+        # Step 7. Reselect pieces + frame for visibility.
         bpy.ops.object.select_all(action='DESELECT')
         for obj in pieces:
             obj.select_set(True)
@@ -618,10 +683,12 @@ class SPRUE_OT_BuildSprueFrame(bpy.types.Operator):
 
         self.report(
             {'INFO'},
-            f"Sprue frame built with {len(pieces)} piece(s) and "
-            f"{len(gate_objects)} gate(s). Object: 'Sprue_Frame'."
+            f"Sprue frame built with {len(pieces)} piece(s), "
+            f"{len(wall_objects)} wall ring(s) and {len(gate_objects)} gate(s). "
+            f"Object: 'Sprue_Frame'."
         )
         return {'FINISHED'}
+
 
 class SPRUE_OT_SelectNonManifold(bpy.types.Operator):
     bl_idname = "sprue.select_non_manifold"
