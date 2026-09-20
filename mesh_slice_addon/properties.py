@@ -4,26 +4,25 @@
 from bpy.types import PropertyGroup
 from bpy.props import IntProperty, FloatProperty, BoolProperty
 
-class MeshSlicerProperties(PropertyGroup):
-    mesh_slicer_settings: BoolProperty(
+class MeshSliceProperties(PropertyGroup):
+    mesh_slice_settings: BoolProperty(
         name="Mesh Slicer settings expanded",
         default=False,
     )
-    # num_samples: IntProperty(
-    #     name="GMM Samples",
-    #     default=1000,
-    #     min=10,
-    #     max=5000,
-    #     description="Number of background samples for GMM fitting",
-    # )
-
     lambda_weight: IntProperty(
-        name="Lambda weight",
+        name="Lambda Weight",
         default=100,
-        min=10,
-        max=1000,
+        min=1,
+        max=500,
         step=5,
-        description="Turn this up if slice generation is creating more than 2 slices.",
+        description="Sensitivity of the slicing algorithm",
+    )
+    beta: FloatProperty(
+        name="Beta",
+        default=0.05,
+        min=0.01,
+        max=1,
+        description="beta..",
     )
 
 

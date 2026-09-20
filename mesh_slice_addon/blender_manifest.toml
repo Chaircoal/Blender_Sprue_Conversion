@@ -1,8 +1,8 @@
 schema_version = "1.0.0"
 
-id = "mesh_slicer"
+id = "mesh_slice"
 version = "1.0.0"
-name = "Mesh Slicer"
+name = "Mesh Slice"
 tagline = "Slices meshes into individual objects. Based on the work of..."
 maintainer = "Kaitlyn Humphrey"
 type = "add-on"
