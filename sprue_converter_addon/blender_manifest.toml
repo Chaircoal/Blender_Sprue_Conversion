@@ -1,0 +1,18 @@
+schema_version = "1.0.0"
+
+id = "sprue_tool"
+version = "1.0.0"
+name = "Sprue Tool"
+tagline = "Convert resin 3D models to injection-mold sprue layout. Suggests cut planes, lays out pieces, and builds a runner frame with gates."
+maintainer = "Logan Hendry, Kaitlyn Humphrey, Cole Latrace, Jayden Williams"
+type = "add-on"
+
+website = "https://github.com/Chaircoal/Blender_Sprue_Conversion/blob/main/README.md"
+
+tags = ["Mesh", "Object"]
+
+blender_version_min = "5.2.0"
+
+license = [
+  "SPDX:GPL-3.0-or-later",
+]
