@@ -6,8 +6,8 @@
 #
 # All of the required code for the Relax operator is included in this file.
 # Modifications:
+# - Modified the operator name, label & description to reflect its use for mesh slicing.
 # - Removed 'settings_load' and 'settings_initialize' functions.
-# - Renamed operator bl_idname to 'mesh_slice.looptools_relax' to avoid namespace conflicts.
 
 import bpy
 import bmesh
@@ -16,9 +16,9 @@ import mathutils
 #### ------------------------------ OPERATORS ------------------------------ ####
 
 class MESH_OT_slice_looptools_relax(bpy.types.Operator):
-    bl_idname = "mesh_slice.looptools_relax"
-    bl_label = "Relax"
-    bl_description = "Relax the loop, so it is smoother"
+    bl_idname = "meshslice.looptools_relax"
+    bl_label = "Relax Boundary"
+    bl_description = "Relax loops between slices, so they are smoother"
     bl_options = {'REGISTER', 'UNDO'}
 
     input: bpy.props.EnumProperty(

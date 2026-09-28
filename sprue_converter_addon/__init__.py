@@ -20,15 +20,27 @@ if "bpy" in locals():
     from . import properties
     from . import operators
     from . import ui
+    from . import meshslice
+    
     importlib.reload(utils)
     importlib.reload(operators)
     importlib.reload(properties)
     importlib.reload(ui)
+
+    importlib.reload(meshslice.exceptions)
+    importlib.reload(meshslice.utils)
+    importlib.reload(meshslice.properties)
+    importlib.reload(meshslice.operators)
+    importlib.reload(meshslice.looptools_relax)
+    importlib.reload(meshslice.ui)
+    importlib.reload(meshslice)
+
 else:
     from . import utils
     from . import properties
     from . import operators
     from . import ui
+    from . import meshslice
 
 import bpy
 
@@ -52,8 +64,12 @@ def register():
     for cls in CLASSES:
         bpy.utils.register_class(cls)
     bpy.types.Scene.sprue_settings = bpy.props.PointerProperty(type=properties.SprueToolSettings)
+    
+    meshslice.register()
 
 def unregister():
+    meshslice.unregister()
+
     for cls in reversed(CLASSES):
         bpy.utils.unregister_class(cls)
     del bpy.types.Scene.sprue_settings
