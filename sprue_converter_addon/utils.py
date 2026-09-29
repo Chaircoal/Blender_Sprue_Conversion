@@ -229,20 +229,19 @@ def simulate_cut_creates_island(bm, z_cut, margin=0.01):
     # If either half has more than 1 connected group, we'd create an island
     return len(groups_above) > 1 or len(groups_below) > 1
 
-
 #  GATE-PRIORITY PAINTING (weight paint based)
-# Users brush priority values onto mesh using Blender's built-in Weight Paint tool.
-# We save the created vertex group so we can read the weights back out later.
-
+# Users brush priority values on with Blender's built-in Weight Paint tool.
+# We just manage the vertex group and read the weights back out.
 PRIORITY_VG_NAME = "SpruePriority"
 
 def apply_heatmap_vertex_colors(obj, curvatures):
     """
-    Write per-face curvature into a vertex colour attribute so it's
-    visible in the viewport (while in Object/Rendered mode).
+    Write per-face curvature into a vertex colour 
+    attribute so it's visible in the viewport.
     """
     mesh = obj.data
 
+    # Blender uses attributes for storing vertex colours
     color_layer_name = "SprueCurvature"
     if color_layer_name in mesh.attributes:
         mesh.attributes.remove(mesh.attributes[color_layer_name])
@@ -263,23 +262,22 @@ def apply_heatmap_vertex_colors(obj, curvatures):
     for poly in mesh.polygons:
         curv = curvatures[poly.index] if poly.index < len(curvatures) else 0.0
         color = curvature_to_color(curv)
-        for _ in poly.loop_indices:
-            color_attr.data[loop_index].color = color
-            loop_index += 1
+        for li in poly.loop_indices:
+            color_attr.data[li].color = color
 
     bm_tmp.free()
 
-    # display assigned colour attribute
+    # Tell Blender to display the colour attribute
     mesh.color_attributes.render_color_index = mesh.color_attributes.find(color_layer_name)
     mesh.color_attributes.active_color_index = mesh.color_attributes.find(color_layer_name)
-    
-    
+
+
 def ensure_priority_vertex_group(obj):
     """
-    Get or create the vertex group used to store gate-priority weights.
-    A new group is zeroed on every vertex so the entire mesh
-    reads as 'blue' (low priority) in Weight Paint mode until
-    the user brushes over it, rather than showing unweighted grey.
+    Get/create the vertex group to store priority values.
+    A freshly created group is zeroed on every vertex so the
+    whole mesh shows blue/low priority in Weight Paint mode 
+    until the user brushes it, rather than unweighted grey.
     """
     vg = obj.vertex_groups.get(PRIORITY_VG_NAME)
     if vg is None:
@@ -290,9 +288,8 @@ def ensure_priority_vertex_group(obj):
 
 
 def get_priority_values(obj):
-    #TODO: connect to Cole's find_best_gate_face function
     """
-    Read the priority vertex group back out as a list of floats,
+    Read the priority vertex group out as a plain list of floats,
     one entry per vertex (0.0 for any vertex not in the group).
     Returns [] if the mesh has no priority group yet.
     """
@@ -312,9 +309,14 @@ def get_priority_values(obj):
 #  SPRUE FRAME GENERATION
 def find_best_gate_face(obj, toward_direction):
     """
-    Find the face on obj that is:
-      - lowest curvature (flattest / least detailed)
+    Find the face on obj that is best suited for a gate:
+      - high painted gate-priority (from the SpruePriority weight-paint map)
+      - low curvature (flat / least detailed)
       - facing roughly toward toward_direction (outward toward the nearest frame edge)
+
+    Weighting: priority 70%, curvature 20%, alignment 10%.
+    If no priority has been painted, every face has priority 0 and the
+    scoring falls back to curvature/alignment only.
 
     Returns (face_center_world, face_normal_world) or None.
     toward_direction is a Vector in world space.
@@ -328,6 +330,9 @@ def find_best_gate_face(obj, toward_direction):
     curvatures = compute_face_curvature(bm)
     bm.faces.ensure_lookup_table()
 
+    # Painted gate-priority, per vertex (0.0 for every vertex if unpainted)
+    priority_values = get_priority_values(obj)
+
     best_score = None
     best_center = None
     best_normal = None
@@ -336,6 +341,13 @@ def find_best_gate_face(obj, toward_direction):
 
     for poly in mesh.polygons:
         curv = curvatures[poly.index] if poly.index < len(curvatures) else 0.5
+
+        # Face priority = average of its vertices' painted weights
+        if priority_values:
+            vert_priorities = [priority_values[vi] for vi in poly.vertices]
+            priority = sum(vert_priorities) / len(vert_priorities)
+        else:
+            priority = 0.0
 
         # World-space normal
         world_normal = (mat.to_3x3() @ poly.normal).normalized()
@@ -347,9 +359,9 @@ def find_best_gate_face(obj, toward_direction):
         if alignment < 0.5:
             continue
 
-        # Score: lower curvature + better alignment = better gate location
-        # Weight curvature 70%, alignment 30%
-        score = (curvatures[poly.index] * 0.7) - (alignment * 0.3)
+        # Score: lower curvature + better alignment + higher priority = better gate location
+        # Weight priority 70%, curvature 20%, alignment 10%
+        score = (curv * 0.2) - (alignment * 0.1) - (priority * 0.7)
 
         if best_score is None or score < best_score:
             best_score = score
