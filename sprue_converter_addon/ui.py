@@ -10,6 +10,7 @@ class SPRUE_PT_MainPanel(bpy.types.Panel):
     bl_space_type = 'VIEW_3D'
     bl_region_type = 'UI'
     bl_category = "Sprue Tool"
+    bl_order = 1
 
     def draw(self, context):
         layout = self.layout
