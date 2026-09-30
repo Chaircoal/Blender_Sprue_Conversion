@@ -5,7 +5,7 @@ from bpy.types import PropertyGroup
 from bpy.props import IntProperty, FloatProperty, BoolProperty
 
 class MeshSliceProperties(PropertyGroup):
-    mesh_slice_settings: BoolProperty(
+    meshslice_settings: BoolProperty(
         name="Mesh Slicer settings expanded",
         default=False,
     )

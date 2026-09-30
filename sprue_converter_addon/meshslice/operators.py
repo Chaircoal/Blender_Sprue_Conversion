@@ -6,7 +6,8 @@ from . import utils, exceptions
 from numpy import asarray
 
 class MESH_OT_preprocess_mesh(bpy.types.Operator):
-    bl_idname = "mesh_slice.get_sdf"
+    """Prepare selected mesh for slicing."""
+    bl_idname = "meshslice.get_sdf"
     bl_label = "Preprocess Mesh"
     bl_options = {"REGISTER", "UNDO"}
 
@@ -44,7 +45,7 @@ class VIEW3D_OT_draw_foreground(bpy.types.Operator):
 
 class MESH_OT_generate_slice_boundaries(bpy.types.Operator):
     """Assigns materials to slices based on selected seed vertices."""
-    bl_idname = "mesh_slice.generate_slice_boundaries"
+    bl_idname = "meshslice.generate_slice_boundaries"
     bl_label = "Generate Slices"
     bl_options = {"REGISTER", "UNDO"}
 
@@ -62,8 +63,8 @@ class MESH_OT_generate_slice_boundaries(bpy.types.Operator):
 
             sdf_array = asarray(obj["_sdf"])
             mesh = obj.data
-            lambda_weight = context.scene.mesh_slice_properties.lambda_weight
-            beta = context.scene.mesh_slice_properties.beta
+            lambda_weight = context.scene.meshslice_properties.lambda_weight
+            beta = context.scene.meshslice_properties.beta
 
             bpy.ops.object.mode_set(mode='OBJECT')  # ensure vertex selection updated
 
@@ -85,7 +86,7 @@ class MESH_OT_generate_slice_boundaries(bpy.types.Operator):
 
 class MESH_OT_slice_mesh(bpy.types.Operator):
     """Slices the mesh by material into separate objects."""
-    bl_idname = "mesh_slice.slice_mesh"
+    bl_idname = "meshslice.slice_mesh"
     bl_label = "Slice Mesh"
     bl_options = {"REGISTER", "UNDO"}
 
