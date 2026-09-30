@@ -63,6 +63,31 @@ class SprueToolSettings(bpy.types.PropertyGroup):
         description="Minimum gap between pieces in the grid layout (Blender units)",
         default=0.4, min=0.1, max=3.0, step=1,
     )
+    piece_wall_padding: FloatProperty(
+        name="Piece wall padding",
+        description="Gap between a piece and its own individual runner wall ring (Blender units)",
+        default=0.15, min=0.02, max=2.0, step=1,
+    )
+    piece_wall_width: FloatProperty(
+        name="Piece wall width",
+        description="Width (thickness in XY) of each piece's individual runner wall ring",
+        default=0.15, min=0.02, max=1.0, step=1,
+    )
+    piece_wall_height: FloatProperty(
+        name="Piece wall height",
+        description="Height (Z thickness) of each piece's individual runner wall ring",
+        default=0.15, min=0.02, max=1.0, step=1,
+    )
+    gate_priority_min_weight: FloatProperty(
+        name="Gate priority threshold",
+        description="Minimum painted weight for a vertex to count as a preferred gate location",
+        default=0.05, min=0.0, max=1.0, step=1,
+    )
+    max_gates_per_piece: IntProperty(
+        name="Max gates per piece",
+        description="Cap on how many separate painted gate regions can become gates on a single piece",
+        default=4, min=1, max=12,
+    )
 
     # Model manifold settings
     is_watertight: BoolProperty(
