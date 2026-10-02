@@ -5,7 +5,7 @@ import traceback
 from . import utils, exceptions
 from numpy import asarray
 
-class MESH_OT_preprocess_mesh(bpy.types.Operator):
+class MESH_OT_PreprocessMesh(bpy.types.Operator):
     """Prepare selected mesh for slicing."""
     bl_idname = "meshslice.get_sdf"
     bl_label = "Preprocess Mesh"
@@ -33,7 +33,7 @@ class MESH_OT_preprocess_mesh(bpy.types.Operator):
 
         return {"FINISHED"}
 
-class VIEW3D_OT_draw_foreground(bpy.types.Operator):
+class VIEW3D_OT_DrawForeground(bpy.types.Operator):
     """Select vertices of the part you want to extract from the mesh."""
     bl_idname = "view3d.draw_foreground"
     bl_label = "Select Part to Extract"
@@ -43,7 +43,7 @@ class VIEW3D_OT_draw_foreground(bpy.types.Operator):
         bpy.ops.object.mode_set(mode='EDIT')
         return {"FINISHED"}
 
-class MESH_OT_generate_slice_boundaries(bpy.types.Operator):
+class MESH_OT_GenerateSliceBoundaries(bpy.types.Operator):
     """Assigns materials to slices based on selected seed vertices."""
     bl_idname = "meshslice.generate_slice_boundaries"
     bl_label = "Generate Slices"
@@ -84,7 +84,7 @@ class MESH_OT_generate_slice_boundaries(bpy.types.Operator):
 
         return {"FINISHED"}
 
-class MESH_OT_slice_mesh(bpy.types.Operator):
+class MESH_OT_SliceMesh(bpy.types.Operator):
     """Slices the mesh by material into separate objects."""
     bl_idname = "meshslice.slice_mesh"
     bl_label = "Slice Mesh"
@@ -127,7 +127,7 @@ class MESH_OT_slice_mesh(bpy.types.Operator):
             bpy.ops.object.mode_set(mode=original_mode)
         return {"FINISHED"}
 
-class OBJECT_OT_lay_flat(bpy.types.Operator):
+class OBJECT_OT_LayFlat(bpy.types.Operator):
     """Lays the active object flat along the XY plane"""
     bl_idname = "object.lay_flat"
     bl_label = "Lay Flat"
@@ -145,8 +145,7 @@ class OBJECT_OT_lay_flat(bpy.types.Operator):
         if original_mode != "OBJECT":
             bpy.ops.object.mode_set(mode="OBJECT")
 
-        mesh = obj.data
-        utils.align_object_along_xy(obj, mesh) # lay mesh "flat"
+        utils.align_object_along_xy(obj) # lay mesh "flat"
 
         bpy.ops.object.origin_set(type='ORIGIN_CENTER_OF_VOLUME')
         x, y, _ = obj.location

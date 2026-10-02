@@ -6,7 +6,6 @@ from mathutils import Matrix
 from sklearn.mixture import GaussianMixture
 from sklearn.decomposition import PCA
 from . import exceptions
-
 from ..mesh_utils import (
     get_v_coords,
     get_face_verts,
@@ -55,10 +54,11 @@ def get_vertex_labels(
         lambda_weight: int, 
         beta: float) -> np.ndarray:
     """
-    Labels vertices of a mesh as either foreground (1) or background (0)
+    Labels vertices of a mesh as either foreground (1) or background (0) using the selected vertices
+    as seeds.
 
-    
-    References:
+    References: 
+    Fan, L., Lic, L. and Liu, K. (2011), Paint Mesh Cutting. Computer Graphics Forum, 30: 603-612. https://doi.org/10.1111/j.1467-8659.2011.01895.x
 
     """
     if len(mesh.polygons) != len(mesh.loop_triangles):
@@ -103,6 +103,12 @@ def get_vertex_labels(
     return vertex_labels
 
 def _calculate_data_term(gmm_bg, samples, gmm_fg, fg_indices):
+    """
+    Data term equation from Paint Mesh Cutting paper.
+
+    References: 
+    Fan, L., Lic, L. and Liu, K. (2011), Paint Mesh Cutting. Computer Graphics Forum, 30: 603-612. https://doi.org/10.1111/j.1467-8659.2011.01895.x
+    """
     L_b_v = -gmm_bg.score_samples(samples)
     L_f_v = -gmm_fg.score_samples(samples)
     
@@ -114,6 +120,10 @@ def _calculate_data_term(gmm_bg, samples, gmm_fg, fg_indices):
 
 def _calculate_smoothness_term(mesh, num_edges, num_verts, beta, lambda_weight):
     """
+    Smoothness term equation from Paint Mesh Cutting paper.
+
+    References: 
+    Fan, L., Lic, L. and Liu, K. (2011), Paint Mesh Cutting. Computer Graphics Forum, 30: 603-612. https://doi.org/10.1111/j.1467-8659.2011.01895.x
     """
     v_coords = get_v_coords(mesh)
     
@@ -151,7 +161,13 @@ def _energy_minimization(
         beta = .05
     )-> np.ndarray:
     """
-    
+    Segments the mesh by minimizing an energy function using graph cuts.
+
+    The energy combines data terms from foreground/background GMMs with
+    smoothness terms based on geodesic distance and normal variation.
+
+    References: 
+    Fan, L., Lic, L. and Liu, K. (2011), Paint Mesh Cutting. Computer Graphics Forum, 30: 603-612. https://doi.org/10.1111/j.1467-8659.2011.01895.x
     """
     num_verts = len(samples)
     num_edges = len(mesh.edges)
@@ -173,11 +189,15 @@ def _energy_minimization(
 
 
     g.maxflow()
-    labels = g.get_grid_segments(nodes).astype(bool)
+    # Flip labels so foreground == 1 and background == 0
+    labels = ~g.get_grid_segments(nodes).astype(bool)
 
     return labels
 
 def get_or_create_material(name, color):
+    """
+    If material exists, returns it. Otherwise, creates the material and returns it.
+    """
     mat: bpy.types.Material = bpy.data.materials.get(name)
 
     if mat is None:
@@ -192,7 +212,10 @@ def get_or_create_material(name, color):
     return mat
 
 def assign_slice_materials(mesh: bpy.types.Mesh, vertex_labels, mat_fg, mat_bg):
-    """Assigns foreground material to a face if all its vertices are labeled foreground."""
+    """
+    Assigns foreground material to a face if all its vertices are labeled foreground.
+    Otherwise, background material is assigned to the face.
+    """
     # add materials to object if not present
     fg_idx = mesh.materials.find(mat_fg.name)
     bg_idx = mesh.materials.find(mat_bg.name)
@@ -211,11 +234,14 @@ def assign_slice_materials(mesh: bpy.types.Mesh, vertex_labels, mat_fg, mat_bg):
 
     is_fg = face_labels.all(axis=1)
 
-    material_indices = np.where(is_fg, bg_idx, fg_idx).astype(np.int32)
+    material_indices = np.where(is_fg, fg_idx, bg_idx).astype(np.int32)
     mesh.polygons.foreach_set("material_index", material_indices)
     mesh.update()
 
-def fill_mesh(mesh: bpy.types.Mesh, use_beauty:bool = False) :
+def fill_mesh(mesh: bpy.types.Mesh, use_beauty:bool = False):
+    """
+    Fills all boundary loops of a given mesh using triangle fill.
+    """
     bm: bmesh.types.BMesh = bmesh.new()
 
     bm.from_mesh(mesh)
@@ -229,7 +255,11 @@ def fill_mesh(mesh: bpy.types.Mesh, use_beauty:bool = False) :
     
     mesh.update()
 
-def align_object_along_xy(obj, mesh):
+def align_object_along_xy(obj):
+    """
+    Rotates the object so that its two widest dimensions align with the XY plane.
+    """
+    mesh = obj.data
     v_coords= get_v_coords(mesh)
 
     pca = PCA(n_components=3)

@@ -16,13 +16,13 @@ if "bpy" in locals():
 
 CLASSES = (
     properties.MeshSliceProperties,
-    operators.MESH_OT_preprocess_mesh,
-    operators.VIEW3D_OT_draw_foreground,
-    operators.MESH_OT_generate_slice_boundaries,
-    operators.MESH_OT_slice_mesh,
-    operators.OBJECT_OT_lay_flat,
-    looptools_relax.MESH_OT_slice_looptools_relax,
-    ui.VIEW3D_PT_meshslice,
+    operators.MESH_OT_PreprocessMesh,
+    operators.VIEW3D_OT_DrawForeground,
+    operators.MESH_OT_GenerateSliceBoundaries,
+    operators.MESH_OT_SliceMesh,
+    operators.OBJECT_OT_LayFlat,
+    looptools_relax.MESH_OT_SliceLoopToolsRelax,
+    ui.VIEW3D_PT_MeshSlice,
 )
 
 def register():

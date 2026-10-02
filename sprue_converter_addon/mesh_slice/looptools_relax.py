@@ -15,7 +15,7 @@ import mathutils
 
 #### ------------------------------ OPERATORS ------------------------------ ####
 
-class MESH_OT_slice_looptools_relax(bpy.types.Operator):
+class MESH_OT_SliceLoopToolsRelax(bpy.types.Operator):
     bl_idname = "meshslice.looptools_relax"
     bl_label = "Relax Boundary"
     bl_description = "Relax loops between slices, so they are smoother"
