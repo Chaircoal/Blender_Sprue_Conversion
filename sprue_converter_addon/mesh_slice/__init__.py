@@ -1,20 +1,18 @@
-bl_info = {
-    "name": "Mesh Slicer",
-    "author": "Kaitlyn Humphrey",
-    "version": (0, 1, 0),
-    "blender": (5, 2, 0),
-    "location": "View3D > Sidebar > Mesh Slicer",
-    "description": "Separates meshes into parts that can then be used with Sprue Tool.",
-    "category": "Mesh",
-}
-
 import bpy
-from . import exceptions
-from . import utils
+
 from . import properties
 from . import operators
 from . import looptools_relax
 from . import ui
+
+if "bpy" in locals():
+    import importlib
+
+    importlib.reload(properties)
+    importlib.reload(operators)
+    importlib.reload(looptools_relax)
+    importlib.reload(ui)
+    
 
 CLASSES = (
     properties.MeshSliceProperties,

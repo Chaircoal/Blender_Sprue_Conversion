@@ -14,50 +14,42 @@ bl_info = {
 
 # Handles reloading within Blender
 # Enables the use of the "Reload Scripts" button
-if "bpy" in locals():
+from . import mesh_utils
+from . import properties
+from . import operators
+from . import ui
+
+from . import mesh_slice
+from . import dfm
+from . import priority_brush
+from . import sprue_gen
+
+if "bpy" in locals():    
     import importlib
-    from . import utils
-    from . import properties
-    from . import operators
-    from . import ui
-    from . import meshslice
-    
-    importlib.reload(utils)
+    importlib.reload(mesh_utils)
     importlib.reload(operators)
     importlib.reload(properties)
+
+    importlib.reload(mesh_slice)
+    importlib.reload(dfm)
+    importlib.reload(priority_brush)
+    importlib.reload(sprue_gen)
     importlib.reload(ui)
-
-    importlib.reload(meshslice.exceptions)
-    importlib.reload(meshslice.utils)
-    importlib.reload(meshslice.properties)
-    importlib.reload(meshslice.operators)
-    importlib.reload(meshslice.looptools_relax)
-    importlib.reload(meshslice.ui)
-    importlib.reload(meshslice)
-
-else:
-    from . import utils
-    from . import properties
-    from . import operators
-    from . import ui
-    from . import meshslice
 
 import bpy
 
 #  REGISTRATION
 CLASSES = [
     properties.SprueToolSettings,
-    operators.SPRUE_OT_AnalyzeMesh,
-    operators.SPRUE_OT_FindSlicePlanes,
-    operators.SPRUE_OT_AcceptPlane,
-    operators.SPRUE_OT_ClearHeatmap,
-    operators.SPRUE_OT_StartPriorityPaint,
-    operators.SPRUE_OT_FinishPriorityPaint,
-    operators.SPRUE_OT_ClearPriorityPaint,
     operators.SPRUE_OT_ClearAll,
-    operators.SPRUE_OT_BuildSprueFrame,
-    operators.SPRUE_OT_SelectNonManifold,
     ui.SPRUE_PT_MainPanel,
+]
+
+MODULES = [
+    mesh_slice,
+    dfm,
+    priority_brush,
+    sprue_gen
 ]
 
 def register():
@@ -65,10 +57,13 @@ def register():
         bpy.utils.register_class(cls)
     bpy.types.Scene.sprue_settings = bpy.props.PointerProperty(type=properties.SprueToolSettings)
     
-    meshslice.register()
+    for module in MODULES:
+        module.register()
+
 
 def unregister():
-    meshslice.unregister()
+    for module in reversed(MODULES):
+        module.unregister()
 
     for cls in reversed(CLASSES):
         bpy.utils.unregister_class(cls)

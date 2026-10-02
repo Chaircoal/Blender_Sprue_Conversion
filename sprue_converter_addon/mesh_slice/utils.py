@@ -1,42 +1,22 @@
 import bpy, bmesh
 import numpy as np
-import pymeshlab
-import maxflow
+from pymeshlab import Mesh, MeshSet
+from maxflow import Graph
 from mathutils import Matrix
 from sklearn.mixture import GaussianMixture
 from sklearn.decomposition import PCA
 from . import exceptions
 
+from ..mesh_utils import (
+    get_v_coords,
+    get_face_verts,
+    get_edge_verts,
+    get_selected_vertices
+)
+
 NUM_BG_SAMPLES = 1000
 EPSILON = 1e-6  # prevent math shenanigans like doing log(0)
 K = 1e12  # "sufficiently large" constant to prevent seed verts from being labelled bg
-
-def get_v_coords(mesh):
-    """Returns the vertex coordinates of a mesh as an ndarray with shape (num_verts, 3)."""
-    num_verts = len(mesh.vertices)
-    coords_flat = np.empty(num_verts * 3, dtype=np.float32)
-    mesh.vertices.foreach_get("co", coords_flat)
-    v_coords = coords_flat.reshape(num_verts, 3)
-    return v_coords
-
-def get_face_verts(mesh):
-    """Returns the face vertex indices of a triangular mesh as an ndarray with shape (num_faces, 3)."""
-    num_faces = len(mesh.loop_triangles)
-    faces_flat = np.empty(num_faces * 3, dtype=np.int32)
-    mesh.loop_triangles.foreach_get("vertices", faces_flat)
-    return faces_flat.reshape(num_faces, 3)
-
-def get_edge_verts(num_edges, mesh):
-    """Returns the edge vertex indices of a mesh as an ndarray with shape (num_edges, 2)."""
-    edge_verts = np.zeros(num_edges * 2, dtype=np.int32)
-    mesh.edges.foreach_get("vertices", edge_verts)
-    return edge_verts.reshape(-1, 2)
-
-def get_selected_vertices(mesh: bpy.types.Mesh):
-    """Returns a boolean ndarray of selected vertices of a mesh."""
-    selected = np.empty(len(mesh.vertices), dtype=bool)
-    mesh.vertices.foreach_get("select", selected)
-    return selected
 
 def get_sdf(mesh: bpy.types.Mesh) -> list:
     """
@@ -47,14 +27,15 @@ def get_sdf(mesh: bpy.types.Mesh) -> list:
     References:
     Shapira, L., Shamir, A. & Cohen-Or, D. Consistent mesh partitioning and skeletonisation using the shape diameter function. Visual Comput 24, 249–259 (2008). https://doi.org/10.1007/s00371-007-0197-5
     """
+    mesh.calc_loop_triangles()
     if len(mesh.polygons) != len(mesh.loop_triangles):
         raise exceptions.MeshNotTriangulated()
 
     v_coords = get_v_coords(mesh)
     face_verts = get_face_verts(mesh)
 
-    m = pymeshlab.Mesh(v_coords, face_verts)
-    ms = pymeshlab.MeshSet()
+    m = Mesh(v_coords, face_verts)
+    ms = MeshSet()
     ms.add_mesh(m, "sdf_mesh")
 
     ms.compute_scalar_by_shape_diameter_function_per_vertex(rays=30, cone_amplitude=60)
@@ -95,7 +76,7 @@ def get_vertex_labels(
     if len(bg_indices) < 4:   # bg GMM has 4 components
         raise exceptions.TooManyVerticesSelected(min_unselected=4)
 
-    num_bg_samples = min(NUM_BG_SAMPLES, len(bg_indices)) # paper says 1000 samples works good so we default to that
+    num_bg_samples = min(NUM_BG_SAMPLES, len(bg_indices)) 
     bg_sample_indices = np.random.choice(bg_indices, size=num_bg_samples, replace=False)
 
     # Get SDF values for samples and reshape to column vector (necessary for GMM)
@@ -121,7 +102,7 @@ def get_vertex_labels(
     )
     return vertex_labels
 
-def _calculate_data_term(gmm_bg, samples, gmm_fg, fg_indices, K, g, nodes):
+def _calculate_data_term(gmm_bg, samples, gmm_fg, fg_indices):
     L_b_v = -gmm_bg.score_samples(samples)
     L_f_v = -gmm_fg.score_samples(samples)
     
@@ -175,11 +156,11 @@ def _energy_minimization(
     num_verts = len(samples)
     num_edges = len(mesh.edges)
     
-    g = maxflow.Graph[float]() 
+    g = Graph[float]() 
     nodes = g.add_nodes(num_verts)
 
     # Penalty for assigning label to a vertex
-    L_b_v, L_f_v = _calculate_data_term(gmm_bg, samples, gmm_fg, fg_indices, K, g, nodes)
+    L_b_v, L_f_v = _calculate_data_term(gmm_bg, samples, gmm_fg, fg_indices)
     g.add_grid_tedges(nodes, L_b_v, L_f_v)
 
     # Penalty for assigning different labels to adjacent vertices
@@ -241,7 +222,7 @@ def fill_mesh(mesh: bpy.types.Mesh, use_beauty:bool = False) :
 
     boundary_edges: list[bmesh.types.BMEdge] = [e for e in bm.edges if len(e.link_faces) == 1]
     if boundary_edges:
-        fill_result: dict = bmesh.ops.triangle_fill(bm, edges=boundary_edges, use_beauty=use_beauty, use_dissolve=False)
+        bmesh.ops.triangle_fill(bm, edges=boundary_edges, use_beauty=use_beauty, use_dissolve=False)
         bm.to_mesh(mesh)
 
     bm.free()
@@ -249,7 +230,6 @@ def fill_mesh(mesh: bpy.types.Mesh, use_beauty:bool = False) :
     mesh.update()
 
 def align_object_along_xy(obj, mesh):
-    mesh = obj.data
     v_coords= get_v_coords(mesh)
 
     pca = PCA(n_components=3)

@@ -58,11 +58,11 @@ class MESH_OT_generate_slice_boundaries(bpy.types.Operator):
         obj = context.active_object
         
         try:
+            mesh = obj.data
             if obj.get("_sdf") is None:
-                obj["_sdf"] = utils.get_sdf(obj)
+                obj["_sdf"] = utils.get_sdf(mesh)
 
             sdf_array = asarray(obj["_sdf"])
-            mesh = obj.data
             lambda_weight = context.scene.meshslice_properties.lambda_weight
             beta = context.scene.meshslice_properties.beta
 
@@ -132,6 +132,7 @@ class OBJECT_OT_lay_flat(bpy.types.Operator):
     bl_idname = "object.lay_flat"
     bl_label = "Lay Flat"
     bl_options = {'REGISTER', 'UNDO'}
+    
     @classmethod
     def poll(cls, context) -> bool:
         obj = context.active_object
