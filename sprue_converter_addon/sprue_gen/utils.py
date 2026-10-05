@@ -2,7 +2,7 @@ import math
 import bpy
 import bmesh
 import numpy as np
-from mathutils import Vector
+from mathutils import Vector, Matrix
 from ..priority_brush.utils import get_priority_values
 from .. import mesh_utils
 
@@ -451,7 +451,6 @@ def add_gate_cylinder(collection, base_point, tip_point, diameter, name):
     base_point lives on the frame inner face; tip_point lives on the piece surface.
     Returns the new object, or None if the two points are too close.
     """
-    import math
 
     direction = tip_point - base_point
     length = direction.length
@@ -504,3 +503,246 @@ def add_gate_cylinder(collection, base_point, tip_point, diameter, name):
     collection.objects.link(gate_obj)
 
     return gate_obj
+
+
+def get_all_part_volume():
+    """
+    Get the volume of all the selected parts volume in the present field
+    """
+    parts_volume = []
+
+    # loop through each object in the scene
+    for obj in bpy.context.scene.objects:
+        if obj.type == 'MESH' and obj.name != "Main_Injection_Sprue":
+            # get the volume of the part
+            bm = bmesh.new()
+            bm.from_mesh(obj.data)
+            volume = bm.calc_volume()
+
+            # add the volume and item to the list
+            parts_volume.append((obj, volume))
+
+    parts_volume.sort(key=lambda x: x[1], reverse=True)
+    return parts_volume
+
+
+def distribute_parts_to_quadrants(sorted_parts):
+    """
+    Get a list of parts in their respective quadrants. Using RR approach to place the biggest parts equally.
+    """
+    quadrants = {1: [], 2: [], 3: [], 4: []}
+    current_quadrant = 1
+
+    for part in sorted_parts:
+        quadrants[current_quadrant].append(part)
+        current_quadrant += 1
+        if current_quadrant > 4:
+            current_quadrant = 1
+
+    return quadrants
+
+
+def orient_part(context, obj, min_weight, face_dir):
+    """
+    Point the painted gate area along face_dir, then spin the part around
+    face_dir so it lies flat.
+    Returns (Z height of the painted spot after rotating, has_priority)
+    """
+    bpy.ops.object.select_all(action='DESELECT')
+    obj.select_set(True)
+    context.view_layer.objects.active = obj
+
+    bpy.ops.object.transform_apply(location=False, rotation=True, scale=True)
+
+    # Read the heatmap
+    bm = mesh_utils.get_bmesh(obj)
+    axis, plane_point, has_priority = compute_gate_plane_axis(
+        obj, bm, min_weight=min_weight
+    )
+
+    if not has_priority:
+        axis, plane_point = find_flat_gate_region(bm)
+
+    if obj.mode != 'EDIT':
+        bm.free()
+
+    # get the centre of the part
+    verts = [v.co for v in obj.data.vertices]
+    centre = sum(verts, Vector()) / len(verts)
+
+    # pick the sign that points from the part's centre toward the painted spot
+    axis = axis.normalized()
+    if axis.dot(plane_point - centre) < 0:
+        axis = -axis
+
+    target = face_dir.normalized()
+    quat = axis.rotation_difference(target)
+
+    # Apply that rotation and bake it into the mesh
+    obj.rotation_mode = 'QUATERNION'
+    obj.rotation_quaternion = quat
+    bpy.ops.object.transform_apply(location=False, rotation=True, scale=False)
+
+    # Spin around face_dir to lay the part flat
+    best_angle = spin_flat(context, obj, face_dir)
+
+    # Track where the painted spot ended up after BOTH rotations,
+    # so the layout can put it at Z=0
+    spin = Matrix.Rotation(best_angle, 3, target)
+    painted_point = spin @ (quat @ plane_point)
+
+    return painted_point, has_priority
+
+
+def local_bounds(obj):
+    """
+    Get the smallest and largest corner of the part's bounding box.
+    Only accurate once rotation/scale have been baked into the mesh.
+    """
+    pts = [Vector(c) for c in obj.bound_box]
+    mn = Vector((min(p.x for p in pts), min(p.y for p in pts), min(p.z for p in pts)))
+    mx = Vector((max(p.x for p in pts), max(p.y for p in pts), max(p.z for p in pts)))
+    return mn, mx
+
+
+def spin_flat(context, obj, face_dir, steps=24):
+    """
+    Spin obj around face_dir so its bounding box is as short in Z as possible.
+    The painted face keeps pointing along face_dir
+    Returns the angle that was used.
+    """
+    mesh_pts = [v.co.copy() for v in obj.data.vertices]
+    best_angle, best_height = 0.0, float('inf')
+
+    # Try evenly spaced angles around a full circle and keep the flattest one
+    for i in range(steps):
+        angle = (2 * math.pi) * i / steps
+        rot = Matrix.Rotation(angle, 3, face_dir.normalized())
+        zs = [(rot @ p).z for p in mesh_pts]
+        height = max(zs) - min(zs) # how tall the part would be at this angle
+        if height < best_height:
+            best_height, best_angle = height, angle
+
+    # Apply the best angle and bake it into the mesh
+    obj.rotation_mode = 'AXIS_ANGLE'
+    obj.rotation_axis_angle = (best_angle, *face_dir.normalized())
+    bpy.ops.object.select_all(action='DESELECT')
+    obj.select_set(True)
+    context.view_layer.objects.active = obj
+    bpy.ops.object.transform_apply(location=False, rotation=True, scale=False)
+
+    return best_angle
+
+
+def find_flat_gate_region(bm, spread_deg=15.0):
+    """
+    Find the largest connected, flat patch on the part.
+    A patch is flat when every face in it points within spread_deg of the
+    face the patch started from. Studs, ridges and panel edges change the
+    direction quickly, so they stop a patch from growing.
+    """
+    bm.faces.ensure_lookup_table()
+    bm.normal_update()
+    all_faces = list(bm.faces)
+
+    # Smallest dot product two normals can have and still count as "the same direction"
+    min_dot = math.cos(math.radians(spread_deg))
+
+    # Start patches from the biggest faces first, so patches begin on flat areas
+    seed_order = sorted(all_faces, key=lambda f: f.calc_area(), reverse=True)
+
+    visited = set() # indices of faces already put in a patch
+    best_patch = [] # faces of the best patch so far
+    best_area = 0.0 # total area of the best patch so far
+
+    for seed_face in seed_order:
+        if seed_face.index in visited:
+            continue
+
+        seed_normal = seed_face.normal.copy()
+        patch = []
+        patch_area = 0.0
+
+        # Flood fill outward from the seed face over shared edges
+        to_check = [seed_face]
+        visited.add(seed_face.index)
+
+        while len(to_check) > 0:
+            face = to_check.pop()
+            patch.append(face)
+            patch_area += face.calc_area()
+
+            for edge in face.edges:
+                for neighbour in edge.link_faces:
+                    if neighbour.index in visited:
+                        continue
+
+                    # Only join the patch if it points the same way as the seed
+                    if neighbour.normal.dot(seed_normal) >= min_dot:
+                        visited.add(neighbour.index)
+                        to_check.append(neighbour)
+
+        if patch_area > best_area:
+            best_area = patch_area
+            best_patch = patch
+
+    # if the mesh had no faces at all, give a harmless default
+    if len(best_patch) == 0:
+        return Vector((0.0, 0.0, 1.0)), Vector((0.0, 0.0, 0.0))
+
+    # Axis: the area-weighted average direction of the patch
+    axis_sum = Vector((0.0, 0.0, 0.0))
+    for face in best_patch:
+        axis_sum += face.normal * face.calc_area()
+    axis = axis_sum.normalized()
+
+    # Middle of the patch: the area-weighted average of the face centres
+    middle_sum = Vector((0.0, 0.0, 0.0))
+    for face in best_patch:
+        middle_sum += face.calc_center_median() * face.calc_area()
+    patch_middle = middle_sum / best_area
+
+    # Gate point: the face centre closest to that middle, so it sits on the part
+    point = best_patch[0].calc_center_median()
+    closest_distance = (point - patch_middle).length
+    for face in best_patch:
+        centre = face.calc_center_median()
+        distance = (centre - patch_middle).length
+        if distance < closest_distance:
+            closest_distance = distance
+            point = centre
+
+    return axis, point
+
+
+def find_feeder_end(x, start_y, direction, end_y, placed_bounds, half_width, clearance):
+    """
+    Walk along Y from start_y toward end_y and return where a feeder should stop.
+    direction is +1 (toward higher Y) or -1 (toward lower Y).
+    The feeder normally goes all the way to end_y, but stops 'clearance' short
+    of any part whose bounding box overlaps the feeder's column.
+    """
+    stop_y = end_y
+
+    for part_x_min, part_x_max, part_y_min, part_y_max in placed_bounds:
+        # Skip parts that are not in the feeder's column
+        if part_x_min <= x - half_width or part_x_max >= x + half_width:
+            continue
+
+        if direction > 0:
+            # Part is ahead of us if its near edge is above the start
+            if part_y_min > start_y:
+                stop_y = min(stop_y, part_y_min - clearance)
+        else:
+            # Part is ahead of us if its near edge is below the start
+            if part_y_max < start_y:
+                stop_y = max(stop_y, part_y_max + clearance)
+
+    # If the blocker is so close that we would go backwards, don't extend at all
+    if direction * (stop_y - start_y) < 0:
+        return start_y
+
+    return stop_y
+
+
+

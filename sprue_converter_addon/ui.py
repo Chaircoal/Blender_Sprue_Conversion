@@ -124,16 +124,23 @@ class SPRUE_PT_MainPanel(bpy.types.Panel):
         col.prop(settings, "gate_diameter")
         col.prop(settings, "gate_length")
 
-        sel_meshes = [o for o in context.selected_objects if o.type == 'MESH']
-        row = box.row()
-        row.scale_y = 1.4
-        if sel_meshes:
-            row.operator("sprue.build_frame", icon='MESH_GRID',
-                         text=f"Build frame ({len(sel_meshes)} piece(s))")
-        else:
-            row.enabled = False
-            row.operator("sprue.build_frame", icon='MESH_GRID',
-                         text="Select pieces first")
+        # sel_meshes = [o for o in context.selected_objects if o.type == 'MESH']
+        # row = box.row()
+        # row.scale_y = 1.4
+        # if sel_meshes:
+        #     row.operator("sprue.build_frame", icon='MESH_GRID',
+        #                  text=f"Build frame ({len(sel_meshes)} piece(s))")
+        # else:
+        #     row.enabled = False
+        #     row.operator("sprue.build_frame", icon='MESH_GRID',
+        #                  text="Select pieces first")
+
+        layout.separator()
+
+        box = layout.box()
+        box.label(text="Organize Parts", icon='ERROR')
+        col = box.column(align=True)
+        col.operator("sprue.build_sprue_layout", text="Build Sprue Layout", icon='MOD_BUILD')
 
         layout.separator()
 

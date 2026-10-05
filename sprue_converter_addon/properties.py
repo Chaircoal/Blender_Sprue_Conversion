@@ -51,7 +51,7 @@ class SprueToolSettings(bpy.types.PropertyGroup):
     gate_diameter: FloatProperty(
         name="Gate diameter",
         description="Diameter of the cylinder stub connecting each piece to the frame (Blender units)",
-        default=0.12, min=0.02, max=0.5, step=1,
+        default=1, min=0.5, max=10, step=1,
     )
     gate_length: FloatProperty(
         name="Gate length",
