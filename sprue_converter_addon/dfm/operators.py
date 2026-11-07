@@ -4,7 +4,7 @@ from . import utils
 from .. import mesh_utils
 
 class SPRUE_OT_AnalyzeMesh(bpy.types.Operator):
-    """Analyse the selected mesh: compute curvature heatmap and detect islands"""
+    """Analyse the selected mesh: compute problem areas and detect islands"""
     bl_idname = "sprue.analyze_mesh"
     bl_label = "Analyse mesh"
     bl_options = {'REGISTER', 'UNDO'}
@@ -81,6 +81,7 @@ class SPRUE_OT_AnalyzeMesh(bpy.types.Operator):
 
 
 class SPRUE_OT_SelectNonManifold(bpy.types.Operator):
+    """Select the non-manifold elements of highlighted part"""
     bl_idname = "sprue.select_non_manifold"
     bl_label = "Select Non-Manifold Elements"
 

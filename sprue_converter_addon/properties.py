@@ -24,6 +24,12 @@ class SprueToolSettings(bpy.types.PropertyGroup):
     last_island_count: IntProperty(default=0)
     last_candidate_count: IntProperty(default=0)
 
+    show_dfm_report: BoolProperty(
+        name="Show DFM report",
+        description="Display the DFM report within the UI panel",
+        default=False
+    )
+
     # GATE PRIORITY PAINTING
     last_priority_painted: IntProperty(
         default=0,

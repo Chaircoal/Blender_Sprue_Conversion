@@ -7,7 +7,7 @@ class VIEW3D_PT_MeshSlice(bpy.types.Panel):
     bl_space_type = "VIEW_3D"
     bl_region_type = "UI"
     bl_category = "Sprue Tool"
-    bl_order = 0
+    bl_order = 2
 
     def draw(self, context):
         layout: bpy.types.UILayout = self.layout

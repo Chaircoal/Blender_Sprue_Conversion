@@ -4,6 +4,7 @@ from mathutils import Vector
 from . import utils
 
 class SPRUE_OT_BuildSprue(bpy.types.Operator):
+    """Build the sprue to connect parts together"""
     bl_idname = "sprue.build_sprue_layout"
     bl_label = "Build the layout of the sprue"
     bl_options = {'REGISTER', 'UNDO'}
@@ -445,4 +446,3 @@ class SPRUE_OT_BuildSprue(bpy.types.Operator):
 # TODO List
 # - add constants to the settings/properties file instead to allow for dials in UI
 # - run dfm tests after sprue creation to make sure that it is ready for print/injection
-# - update UI to look nicer with what we have now
