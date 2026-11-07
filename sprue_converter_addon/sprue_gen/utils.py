@@ -358,34 +358,69 @@ def add_box(bm, x0, y0, z0, x1, y1, z1):
         bm.faces.new(face)
 
 
-def add_runner_bar(collection, p1, p2, width, height, name):
+# Number of sides on the round runner and frame bars (16 reads as round)
+RUNNER_SEGMENTS = 16
+
+
+def add_round_bar(bm, p1, p2, radius, segments=RUNNER_SEGMENTS):
     """
-    Build a straight rectangular runner bar between p1 and p2 and link it
-    into the collection as a new object.
-    p1/p2 must share one axis-aligned coordinate (the bar runs along the
-    other). width is the bar's thickness perpendicular to travel, height is
-    its Z thickness. Returns the new object, or None if p1/p2 are too close.
+    Add a straight round bar (a cylinder with flat end caps) to bm, running
+    from p1 to p2. p1 and p2 are the centres of the two end caps, in world space.
+    """
+    direction = p2 - p1
+    if direction.length < 0.001:
+        return
+    dir_norm = direction.normalized()
+
+    # Build a pair of axes perpendicular to the bar so we can fan out the ring of verts
+    if abs(dir_norm.x) < 0.9:
+        arbitrary = Vector((1.0, 0.0, 0.0))
+    else:
+        arbitrary = Vector((0.0, 1.0, 0.0))
+    perp1 = dir_norm.cross(arbitrary).normalized()
+    perp2 = dir_norm.cross(perp1).normalized()
+
+    start_ring = []
+    end_ring = []
+    for i in range(segments):
+        angle = 2.0 * math.pi * i / segments
+        offset = perp1 * (radius * math.cos(angle)) + perp2 * (radius * math.sin(angle))
+        start_ring.append(bm.verts.new(p1 + offset))
+        end_ring.append(bm.verts.new(p2 + offset))
+
+    # Side faces (winding so normals face outward)
+    for i in range(segments):
+        ni = (i + 1) % segments
+        bm.faces.new([start_ring[i], start_ring[ni], end_ring[ni], end_ring[i]])
+
+    # End caps
+    bm.faces.new(list(reversed(start_ring)))
+    bm.faces.new(end_ring)
+
+
+def add_ball(bm, centre, radius, segments=RUNNER_SEGMENTS):
+    """Add a sphere to bm. Used to round off the corners of the frame."""
+    bmesh.ops.create_uvsphere(
+        bm,
+        u_segments=segments,
+        v_segments=max(segments // 2, 3),
+        radius=radius,
+        matrix=Matrix.Translation(centre),
+    )
+
+
+def add_runner_bar(collection, p1, p2, diameter, name, segments=RUNNER_SEGMENTS):
+    """
+    Build a straight round runner bar between p1 and p2 and link it into the
+    collection as a new object. p1/p2 are the centres of the bar's two ends,
+    so the bar's axis runs through them (gates start on this axis at Z = 0).
+    Returns the new object, or None if p1/p2 are too close.
     """
     if (p2 - p1).length < 0.001:
         return None
 
-    half_w = width / 2.0
-    half_h = height / 2.0
-    z = (p1.z + p2.z) / 2.0
-
-    if abs(p1.x - p2.x) >= abs(p1.y - p2.y):
-        # Bar runs along X
-        x0, x1 = sorted((p1.x, p2.x))
-        y0 = p1.y - half_w
-        y1 = p1.y + half_w
-    else:
-        # Bar runs along Y
-        y0, y1 = sorted((p1.y, p2.y))
-        x0 = p1.x - half_w
-        x1 = p1.x + half_w
-
     bm = bmesh.new()
-    add_box(bm, x0, y0, z - half_h, x1, y1, z + half_h)
+    add_round_bar(bm, p1, p2, diameter / 2.0, segments)
     bm.normal_update()
 
     mesh = bpy.data.meshes.new(name + "_mesh")
@@ -399,26 +434,30 @@ def add_runner_bar(collection, p1, p2, width, height, name):
     return bar_obj
 
 
-def make_frame_mesh(bm, x_min, x_max, y_min, y_max, fw, fh):
+def make_frame_mesh(bm, x_min, x_max, y_min, y_max, diameter, segments=RUNNER_SEGMENTS):
     """
-    Build the four bars of the rectangular runner frame into bm.
-    fw = frame bar width (XY), fh = frame bar height (Z).
-    The frame sits centred at Z=0.
+    Build the rectangular runner frame into bm out of four round bars, with a
+    ball at each corner so the corners are round too.
+    x_min..y_max is the INSIDE of the frame, so the bars sit just outside it
+    (their centre lines are half a diameter further out). The frame is centred at Z=0.
     Returns the bmesh (modified in place).
     """
-    z_low = -fh / 2.0
-    z_high = fh / 2.0
+    radius = diameter / 2.0
+    left = x_min - radius
+    right = x_max + radius
+    bottom = y_min - radius
+    top = y_max + radius
 
-    # Bottom bar
-    add_box(bm, x_min - fw, y_min - fw, z_low, x_max + fw, y_min, z_high)
-    # Top bar
-    add_box(bm, x_min - fw, y_max, z_low, x_max + fw, y_max + fw, z_high)
-    # Left bar
-    add_box(bm, x_min - fw, y_min, z_low, x_min, y_max, z_high)
-    # Right bar
-    add_box(bm, x_max, y_min, z_low, x_max + fw, y_max, z_high)
+    corners = [
+        Vector((left, bottom, 0.0)),
+        Vector((right, bottom, 0.0)),
+        Vector((right, top, 0.0)),
+        Vector((left, top, 0.0)),
+    ]
+    for i in range(4):
+        add_round_bar(bm, corners[i], corners[(i + 1) % 4], radius, segments)
+        add_ball(bm, corners[i], radius, segments)
 
-    bmesh.ops.remove_doubles(bm, verts=bm.verts, dist=0.001)
     return bm
 
 
@@ -488,7 +527,7 @@ def add_gate_cylinder(collection, base_point, tip_point, diameter, name, embed=0
 
 # Objects this add-on creates itself. They must never be treated as parts,
 # otherwise running the operator a second time would pick them up as parts
-GENERATED_NAME_PREFIXES = ("Main_Injection_Sprue", "Sprue_Frame", "_gate_", "_runner_")
+GENERATED_NAME_PREFIXES = ("Main_Injection_Sprue", "Sprue_Frame", "_gate_", "_runner_", "_part_copy_")
 
 
 def is_usable_part(obj, view_layer=None):
