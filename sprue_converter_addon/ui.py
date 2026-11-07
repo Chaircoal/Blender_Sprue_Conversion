@@ -151,3 +151,6 @@ class SPRUE_PT_BuildFramePanel(bpy.types.Panel):
         box.label(text="Organize Parts", icon='ERROR')
         col = box.column(align=True)
         col.operator("sprue.build_sprue_layout", text="Build Sprue", icon='MOD_BUILD')
+
+        col.separator()
+        col.label(text="Re-run Analyze Mesh after building", icon='INFO')

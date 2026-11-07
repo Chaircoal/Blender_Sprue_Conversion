@@ -6,7 +6,7 @@ from mathutils import Vector, Matrix
 from ..priority_brush.utils import get_priority_values
 from .. import mesh_utils
 
-DEBUG = True  # set to False to silence the [SPRUE] prints in the system console
+DEBUG = False  # set to False to silence the [SPRUE] prints in the system console
 
 
 def debug(*args):

@@ -463,6 +463,3 @@ class SPRUE_OT_BuildSprue(bpy.types.Operator):
         )
         return {'FINISHED'}
 
-
-# TODO List
-# - run dfm tests after sprue creation to make sure that it is ready for print/injection
