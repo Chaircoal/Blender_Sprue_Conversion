@@ -43,6 +43,8 @@ CLASSES = [
     properties.SprueToolSettings,
     operators.SPRUE_OT_ClearAll,
     ui.SPRUE_PT_MainPanel,
+    ui.SPRUE_PT_AnalysisPanel,
+    ui.SPRUE_PT_BuildFramePanel,
 ]
 
 MODULES = [

@@ -7,7 +7,7 @@ if "bpy" in locals():
     importlib.reload(operators)
 
 CLASSES = (
-    operators.SPRUE_OT_BuildSprueFrame,
+    operators.SPRUE_OT_BuildSprue,
 )
 
 def register():

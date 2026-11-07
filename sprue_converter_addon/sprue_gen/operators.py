@@ -2,142 +2,273 @@ import bpy
 import bmesh
 from mathutils import Vector
 from . import utils
-from .. import mesh_utils
 
-class SPRUE_OT_BuildSprueFrame(bpy.types.Operator):
-    """
-    Lay selected mesh pieces out in a grid, orienting each one so its painted
-    gate-priority vertices land on a shared horizontal plane (preferring the
-    rotation that leaves the least surface area vertical), build a rectangular
-    outer runner frame, surround each piece with its own individual runner
-    wall ring so a gate can be attached from any side, and attach gate stubs
-    at each piece's painted priority location.
-    Select all pieces you want on the sprue before running.
-    """
-    bl_idname = "sprue.build_frame"
-    bl_label = "Build sprue frame"
+class SPRUE_OT_BuildSprue(bpy.types.Operator):
+    """Build the sprue to connect parts together"""
+    bl_idname = "sprue.build_sprue_layout"
+    bl_label = "Build the layout of the sprue"
     bl_options = {'REGISTER', 'UNDO'}
 
     @classmethod
     def poll(cls, context):
-        meshes = [o for o in context.selected_objects if o.type == 'MESH']
-        return len(meshes) >= 1
+        has_meshes = any(utils.is_usable_part(o, context.view_layer) for o in context.view_layer.objects)
+        return context.mode == 'OBJECT' and has_meshes
 
     def execute(self, context):
-        import math
         settings = context.scene.sprue_settings
-
-        pieces = [o for o in context.selected_objects if o.type == 'MESH']
-        if not pieces:
-            self.report({'ERROR'}, "Select at least one mesh object.")
-            return {'CANCELLED'}
-
-        cols = math.ceil(math.sqrt(len(pieces)))
-        spacing = settings.piece_spacing
         min_weight = settings.gate_priority_min_weight
 
-        # Step 1. Orient each piece so its painted gate-priority vertices end
-        # up coplanar on a shared horizontal plane (world Z), preferring the
-        # rotation that leaves the least surface area vertical. Pieces with
-        # no painted priority are just oriented for minimum vertical area.
-        piece_info = []
-        any_missing_priority = False
+        sprue_height = 30 # height in mm
+        diameter = 10 # This is a guess but can be adjusted later
+        runner_spacing = settings.piece_spacing # gap between parts (UI: Piece spacing)
+        max_row_width = 90.0 # how far a row can extend from the sprue before wrapping
+        gate_length = settings.gate_length # how far a gate sticks out past the part's edge (UI: Gate length)
+        gate_objects = [] # kept so we can join/connect them later
+        placed_bounds = [] # world-space (x_min, x_max, y_min, y_max) of every placed part
+        runner_diameter = 3 # diameter of the round runners (value must be under runner_spacing)
 
-        for obj in pieces:
-            bpy.ops.object.select_all(action='DESELECT')
-            obj.select_set(True)
-            context.view_layer.objects.active = obj
+        # Keep the gate base inside the gap between parts, clear of the neighbouring part
+        gate_length = min(gate_length, runner_spacing - runner_diameter / 2)
+        feeder_clearance = 1.0 # how close a feeder may get to a part
+        runner_objects = [] # kept so we can join them later
+        feeder_jobs = [] # (gate_base, side_y, extend_dir_x) for every gate
 
-            # Bake any pre-existing rotation/scale so local mesh data reflects
-            # the piece's actual current shape.
-            bpy.ops.object.transform_apply(location=False, rotation=True, scale=True)
+        gate_volume_step = settings.gate_volume_step # (UI: gate volume step)
+        max_gates_per_part = settings.max_gates_per_piece # (UI: max gates per part)
+        min_gate_gap_ratio = 0.35 # closest two gates may be, as a fraction of the part's bounding box diagonal
+        min_painted_gate_gap = 10.0 # closest a gate may be (mm) to another when it goes on a different painted region
 
-            bm = mesh_utils.get_bmesh(obj)
-            axis, plane_point_local, has_priority = utils.compute_gate_plane_axis(
-                obj, bm, min_weight=min_weight
-            )
-            if obj.mode != 'EDIT':
-                bm.free()
+        min_gate_fit = 0.75 # how much of the gate's end must sit on flat surface (1.0 = all of it)
+        max_gate_slope = 1.0 # steepest a gate may be, as rise over run (1.0 = 45 degrees)
+        fallback_gate_fit = 0.5 # extra gates settle for this if nothing fits as well as min_gate_fit
+        gate_embed_depth = 0.5 # how far (mm) gates sink into the part so they are fully "on" it
+        gate_radius = settings.gate_diameter / 2
+        poor_fit_parts = [] # (part name, fit) for parts where gate 1 doesn't sit flat
+        missing_gate_parts = [] # (part name, extra gates wanted, extra gates placed)
 
-            if not has_priority:
-                any_missing_priority = True
+        gate_extend_max_distance = 15.0 # a gate this close (mm) to the Y trunk or outer frame runs straight into it
+        gate_extend_overlap = 1.0 # how far (mm) the link bar goes into the wall so the two meshes overlap
 
-            target = Vector((0.0, 0.0, 1.0))
-            if axis.dot(target) < 0:
-                axis = -axis
-            quat = axis.rotation_difference(target)
+        # Get all parts sorted by volume, largest first
+        parts_list = utils.get_all_part_volume()
 
-            # Predict where the gate plane will land in local space once this
-            # rotation is baked in, so we can zero it out to Z=0 below.
-            rotated_plane_z = (quat @ plane_point_local).z
+        # Create the central injection point
+        injection_obj = utils.add_gate_cylinder(
+            context.collection,
+            Vector((0, 0, 0)),
+            Vector((0, 0, sprue_height)),
+            diameter,
+            "Main_Injection_Sprue",
+        )
 
-            obj.rotation_mode = 'QUATERNION'
-            obj.rotation_quaternion = quat
-            bpy.ops.object.transform_apply(location=False, rotation=True, scale=False)
+        # signs of each quadrant of the sprue
+        quad_signs = {
+            1: Vector((1.0, 1.0, 0.0)),
+            2: Vector((-1.0, 1.0, 0.0)),
+            3: Vector((-1.0, -1.0, 0.0)),
+            4: Vector((1.0, -1.0, 0.0)),
+        }
 
-            piece_info.append({
-                'obj': obj,
-                'size': (obj.dimensions.x, obj.dimensions.y),
-                'plane_z': rotated_plane_z,
-            })
+        # Sort parts into different quadrants
+        # known largest working area is 240x180mm
+        distributed = utils.distribute_parts_to_quadrants(parts_list)
+        missing_priority = False
 
-        if any_missing_priority:
-            self.report(
-                {'WARNING'},
-                "One or more pieces have no painted gate priority; those were "
-                "oriented for minimum vertical area instead."
-            )
+        for quad_num, quad_parts in distributed.items():
+            sign = quad_signs[quad_num]
 
-        # Position each piece in a grid, cancelling out its own Z so every
-        # piece's gate plane lands at world Z=0 -- the same plane the runner
-        # frame sits on.
-        max_cell_x = max(p['size'][0] for p in piece_info)
-        max_cell_y = max(p['size'][1] for p in piece_info)
-        cell_x = max_cell_x + spacing
-        cell_y = max_cell_y + spacing
+            # Start the layout just outside the injection cylinder
+            # Offsets are always positive, the sign flips them into the quadrant
+            start = diameter / 2 + runner_spacing
+            offset_x = start
+            offset_y = start
+            row_height = 0.0 # tallest part in the current row (used to move to the next row)
 
-        for idx, info in enumerate(piece_info):
-            obj = info['obj']
-            row = idx // cols
-            col = idx % cols
-            target_x = col * cell_x
-            target_y = row * cell_y
+            for part_obj, volume in quad_parts:
+                # Orient part so painted area is facing along the x-axis
+                face_dir = Vector((-sign.x, 0.0, 0.0))
+                painted_point, has_priority = utils.orient_part(context, part_obj, min_weight, face_dir)
+                plane_z = painted_point.z
+                if not has_priority:
+                    missing_priority = True
 
-            bpy.ops.object.select_all(action='DESELECT')
-            obj.select_set(True)
-            context.view_layer.objects.active = obj
+                # Get the part's size and centre from its bounding box
+                mn, mx = utils.local_bounds(part_obj)
+                dim_x, dim_y = mx.x - mn.x, mx.y - mn.y
+                centre_x = (mn.x + mx.x) / 2
+                centre_y = (mn.y + mx.y) / 2
 
-            obj.location.z = -info['plane_z']
+                # If this part would go past the work area, start a new row
+                # (row_height > 0 stops an empty row from wrapping)
+                if offset_x + dim_x > max_row_width and row_height > 0:
+                    offset_y += row_height + runner_spacing
+                    offset_x = start
+                    row_height = 0.0
 
-            bbox_centre_x = (obj.bound_box[0][0] + obj.bound_box[6][0]) / 2
-            bbox_centre_y = (obj.bound_box[0][1] + obj.bound_box[6][1]) / 2
-            obj.location.x = target_x - bbox_centre_x + cell_x / 2
-            obj.location.y = target_y - bbox_centre_y + cell_y / 2
+                # Where the middle of the part should sit, mirrored into this quadrant
+                target_x = (offset_x + dim_x / 2) * sign.x
+                target_y = (offset_y + dim_y / 2) * sign.y
 
-        # Step 2. Compute outer frame bounds from the combined world-space
-        # bounding box of all pieces.
-        all_world_verts = []
-        for obj in pieces:
-            mat = obj.matrix_world
-            for v in obj.data.vertices:
-                all_world_verts.append(mat @ v.co)
+                # move part and place painted spot at z=0
+                part_obj.location = Vector((
+                    target_x - centre_x,
+                    target_y - centre_y,
+                    -plane_z,
+                ))
 
-        xs = [v.x for v in all_world_verts]
-        ys = [v.y for v in all_world_verts]
+                # Where the part's bounding box sits in world space
+                world_min_x = mn.x + part_obj.location.x
+                world_max_x = mx.x + part_obj.location.x
+                world_min_y = mn.y + part_obj.location.y
+                world_max_y = mx.y + part_obj.location.y
 
-        pad = settings.frame_padding
-        fw = settings.frame_width
-        fh = settings.frame_height
-        frame_z = 0.0
+                # remember where this part ended up (used for the frame and for feeders)
+                placed_bounds.append((world_min_x, world_max_x, world_min_y, world_max_y))
 
-        x_min = min(xs) - pad
-        x_max = max(xs) + pad
-        y_min = min(ys) - pad
-        y_max = max(ys) + pad
+                # Which edge of the part faces the injection point depends on the quadrant
+                if sign.x > 0:
+                    near_edge_x = world_min_x
+                    far_edge_x = world_max_x
+                else:
+                    near_edge_x = world_max_x
+                    far_edge_x = world_min_x
 
-        # Step 3. Build the outer frame mesh.
+                # ---------------------------------------------------------
+                # Gate 1: runs from just outside the near edge (in the gap
+                # between parts) to the painted spot on the part
+                # ---------------------------------------------------------
+                gate_base_x = near_edge_x + face_dir.x * gate_length
+                context.view_layer.update()
+
+                # This point is the average of every painted vertex. It isn't guaranteed to
+                # be on the surface (with two paint blobs it lands between them, inside the part)
+                gate_tip = painted_point + part_obj.location
+
+                if has_priority:
+                    # Look through the painted faces for a spot where the gate really sits flat
+                    painted_faces = utils.get_painted_faces(part_obj, min_weight)
+                    better_tip, _best_fit = utils.find_best_gate_tip(
+                        part_obj,
+                        gate_base_x,
+                        painted_faces,
+                        gate_radius,
+                        min_gate_fit,
+                        max_gate_slope
+                    )
+                    if better_tip is not None:
+                        gate_tip = better_tip
+
+                gate_base = Vector((gate_base_x, gate_tip.y, 0.0))
+
+                # How much of the gate's end actually sits on the part
+                gate_fit = utils.gate_fit_score(part_obj, gate_base, gate_tip, gate_radius)
+                utils.debug(f"part '{part_obj.name}': gate 1 fit = {gate_fit:.2f}")
+                if gate_fit < min_gate_fit:
+                    poor_fit_parts.append((part_obj.name, gate_fit))
+
+                gate_obj = utils.add_gate_cylinder(
+                    context.collection,
+                    gate_base,
+                    gate_tip,
+                    settings.gate_diameter,
+                    f"_gate_{part_obj.name}",
+                    embed=gate_embed_depth
+                )
+                if gate_obj:
+                    gate_objects.append(gate_obj)
+
+                # Every gate needs to be connected to the runners. Gate 1 sits on the near
+                # side, so it would extend toward the injection point
+                feeder_jobs.append((gate_base, sign.y, face_dir.x))
+
+                # ---------------------------------------------------------
+                # Extra gates: one more for every gate_volume_step of volume
+                # ---------------------------------------------------------
+                extra_wanted = int(volume // gate_volume_step)
+                if extra_wanted > max_gates_per_part - 1:
+                    extra_wanted = max_gates_per_part - 1
+
+                if extra_wanted > 0:
+                    # Where a gate coming in from the far side of the part would start
+                    far_base_x = far_edge_x - face_dir.x * gate_length
+
+                    # Closest two gate tips on the same part are allowed to be
+                    part_height = mx.z - mn.z
+                    part_diagonal = Vector((dim_x, dim_y, part_height)).length
+                    min_gate_gap = min_gate_gap_ratio * part_diagonal
+
+                    extra_gates = utils.find_extra_gates(
+                        part_obj,
+                        [gate_tip],
+                        extra_wanted,
+                        face_dir,
+                        min_weight,
+                        gate_base.x,
+                        far_base_x,
+                        gate_radius,
+                        min_gate_fit,
+                        fallback_gate_fit,
+                        min_gap=min_gate_gap,
+                        min_painted_gap=min_painted_gate_gap,
+                        max_slope=max_gate_slope
+                    )
+
+                    if len(extra_gates) < extra_wanted:
+                        missing_gate_parts.append((part_obj.name, extra_wanted, len(extra_gates)))
+
+                    for gate_number, (extra_tip, side) in enumerate(extra_gates, start=2):
+                        if side > 0:
+                            extra_base_x = gate_base.x
+                            extend_dir_x = face_dir.x
+                        else:
+                            extra_base_x = far_base_x
+                            extend_dir_x = -face_dir.x
+                        extra_base = Vector((extra_base_x, extra_tip.y, 0.0))
+
+                        extra_gate = utils.add_gate_cylinder(
+                            context.collection,
+                            extra_base,
+                            extra_tip,
+                            settings.gate_diameter,
+                            f"_gate_{part_obj.name}_{gate_number}",
+                            embed=gate_embed_depth
+                        )
+                        if extra_gate:
+                            gate_objects.append(extra_gate)
+                        feeder_jobs.append((extra_base, sign.y, extend_dir_x))
+
+                # Move along the row for the next part
+                offset_x += dim_x + runner_spacing
+                row_height = max(row_height, dim_y)
+
+        # building the outer sprue
+        # work out the outer bounds of everything on the sprue
+        frame_padding = settings.frame_padding # gap between the outermost part and the frame
+        frame_diameter = settings.frame_diameter # diameter of the round frame bars
+
+        # Start with the injection cylinder so the frame always surrounds it,
+        # even if a quadrant is empty
+        x_min = -diameter / 2
+        x_max = diameter / 2
+        y_min = -diameter / 2
+        y_max = diameter / 2
+
+        # Grow the bounds to include every part
+        for part_x_min, part_x_max, part_y_min, part_y_max in placed_bounds:
+            x_min = min(x_min, part_x_min)
+            x_max = max(x_max, part_x_max)
+            y_min = min(y_min, part_y_min)
+            y_max = max(y_max, part_y_max)
+
+        # Push the bounds outward so the frame sits clear of the parts and gates
+        x_min -= frame_padding
+        x_max += frame_padding
+        y_min -= frame_padding
+        y_max += frame_padding
+
+        # build the 4 bars of the outer sprue
         frame_bm = bmesh.new()
-        utils.make_frame_mesh(frame_bm, x_min, x_max, y_min, y_max, fw, fh)
+        utils.make_frame_mesh(frame_bm, x_min, x_max, y_min, y_max, frame_diameter)
 
         frame_mesh = bpy.data.meshes.new("Sprue_Frame_Mesh")
         frame_bm.to_mesh(frame_mesh)
@@ -145,128 +276,190 @@ class SPRUE_OT_BuildSprueFrame(bpy.types.Operator):
         frame_mesh.update()
 
         frame_obj = bpy.data.objects.new("Sprue_Frame", frame_mesh)
-        frame_obj.location = (0, 0, frame_z)
         context.collection.objects.link(frame_obj)
 
-        # Step 4. Surround each piece with its own individual runner wall
-        # ring so a gate can be attached from any side, then bridge that ring
-        # back into the main outer frame.
-        piece_wall_pad = settings.piece_wall_padding
-        pw = settings.piece_wall_width
-        ph = settings.piece_wall_height
+        # Build the runners (trunks and feeders) inside the frame
+        # Runners overlap the frame bars by half their width so they join them
+        frame_left = x_min - frame_diameter / 2
+        frame_right = x_max + frame_diameter / 2
+        frame_bottom = y_min - frame_diameter / 2
+        frame_top = y_max + frame_diameter / 2
 
-        wall_objects = []
-        bridge_objects = []
-        piece_bounds = {}
+        # Y trunk: down the middle, between the left and right quadrants
+        y_trunk = utils.add_runner_bar(
+            context.collection,
+            Vector((0.0, frame_bottom, 0.0)),
+            Vector((0.0, frame_top, 0.0)),
+            runner_diameter,
+            "_runner_trunk_y"
+        )
+        if y_trunk:
+            runner_objects.append(y_trunk)
 
-        for idx, obj in enumerate(pieces):
-            world_verts = [obj.matrix_world @ v.co for v in obj.data.vertices]
-            pxs = [v.x for v in world_verts]
-            pys = [v.y for v in world_verts]
-            px_min, px_max = min(pxs) - piece_wall_pad, max(pxs) + piece_wall_pad
-            py_min, py_max = min(pys) - piece_wall_pad, max(pys) + piece_wall_pad
-            piece_bounds[obj.name] = (px_min, px_max, py_min, py_max)
+        # X trunk: across the middle, between the top and bottom quadrants
+        x_trunk = utils.add_runner_bar(
+            context.collection,
+            Vector((frame_left, 0.0, 0.0)),
+            Vector((frame_right, 0.0, 0.0)),
+            runner_diameter,
+            "_runner_trunk_x"
+        )
+        if x_trunk:
+            runner_objects.append(x_trunk)
 
-            wall_bm = bmesh.new()
-            utils.make_frame_mesh(wall_bm, px_min, px_max, py_min, py_max, pw, ph)
-            wall_mesh = bpy.data.meshes.new(f"_SprueWall_{idx:02d}_Mesh")
-            wall_bm.to_mesh(wall_mesh)
-            wall_bm.free()
-            wall_mesh.update()
-            wall_obj = bpy.data.objects.new(f"_SprueWall_{idx:02d}_{obj.name}", wall_mesh)
-            wall_obj.location = (0, 0, frame_z)
-            context.collection.objects.link(wall_obj)
-            wall_objects.append(wall_obj)
+        # ---------------------------------------------------------------
+        # Gates that are close to the Y trunk or the outer frame don't need
+        # their own feeder. Instead a short bar links the gate straight to
+        # that wall. Every other gate goes on to get a feeder below.
+        # ---------------------------------------------------------------
+        # X positions of the faces a gate (which runs along X) could run into:
+        # both faces of the Y trunk, and the inner faces of the left/right frame bars
+        wall_faces_x = [-runner_diameter / 2, runner_diameter / 2, x_min, x_max]
 
-            # Bridge this ring to whichever outer-frame edge is nearest.
-            wx_min, wx_max = px_min - pw, px_max + pw
-            wy_min, wy_max = py_min - pw, py_max + pw
-
-            gap_left = wx_min - x_min
-            gap_right = x_max - wx_max
-            gap_bottom = wy_min - y_min
-            gap_top = y_max - wy_max
-            min_gap = min(gap_left, gap_right, gap_bottom, gap_top)
-
-            wall_x_mid = (wx_min + wx_max) / 2.0
-            wall_y_mid = (wy_min + wy_max) / 2.0
-
-            if min_gap == gap_left:
-                bridge_from = Vector((wx_min, wall_y_mid, frame_z))
-                bridge_to = Vector((x_min, wall_y_mid, frame_z))
-            elif min_gap == gap_right:
-                bridge_from = Vector((wx_max, wall_y_mid, frame_z))
-                bridge_to = Vector((x_max, wall_y_mid, frame_z))
-            elif min_gap == gap_bottom:
-                bridge_from = Vector((wall_x_mid, wy_min, frame_z))
-                bridge_to = Vector((wall_x_mid, y_min, frame_z))
-            else:
-                bridge_from = Vector((wall_x_mid, wy_max, frame_z))
-                bridge_to = Vector((wall_x_mid, y_max, frame_z))
-
-            bridge_obj = utils.add_runner_bar(
-                context.collection, bridge_from, bridge_to, min(pw, fw), min(ph, fh),
-                f"_SprueBridge_{idx:02d}_{obj.name}",
+        feeders_needed = []
+        link_count = 0
+        for gate_base, side_y, extend_dir_x in feeder_jobs:
+            wall_x = utils.find_wall_for_gate(
+                gate_base,
+                extend_dir_x,
+                wall_faces_x,
+                gate_extend_max_distance,
+                placed_bounds,
+                runner_diameter / 4,
+                feeder_clearance
             )
-            if bridge_obj:
-                bridge_objects.append(bridge_obj)
 
-        # Step 5. Attach each piece to its own wall ring with a gate stub at
-        # each painted gate-priority region (or the best outward face if
-        # nothing was painted).
-        gate_objects = []
-        max_gates = settings.max_gates_per_piece
-
-        for idx, obj in enumerate(pieces):
-            px_min, px_max, py_min, py_max = piece_bounds[obj.name]
-
-            gate_infos = utils.find_gate_faces(
-                obj, toward_direction=None, min_weight=min_weight, max_gates=max_gates
-            )
-            if not gate_infos:
-                self.report({'WARNING'}, f"Could not find gate face for '{obj.name}', skipping.")
+            if wall_x is None:
+                # Nothing close enough (or a part is in the way), so this gate needs a feeder
+                feeders_needed.append((gate_base, side_y))
                 continue
 
-            for g, (face_center_world, face_normal_world) in enumerate(gate_infos):
-                gate_base = utils.nearest_wall_point(
-                    face_center_world, px_min, px_max, py_min, py_max, ph / 2.0
-                )
-                gate_tip = face_center_world
+            # The bar goes a little way into the wall so the two meshes overlap
+            wall_end_x = wall_x + extend_dir_x * gate_extend_overlap
+            gate_end_x = gate_base.x - extend_dir_x * (runner_diameter / 4)
 
-                gate_obj = utils.add_gate_cylinder(
-                    context.collection,
-                    gate_base,
-                    gate_tip,
-                    settings.gate_diameter,
-                    f"_Gate_{idx:02d}_{g:02d}_{obj.name}",
-                )
-                if gate_obj:
-                    gate_objects.append(gate_obj)
+            link_obj = utils.add_runner_bar(
+                context.collection,
+                Vector((wall_end_x, gate_base.y, 0.0)),
+                Vector((gate_end_x, gate_base.y, 0.0)),
+                runner_diameter / 2,
+                f"_runner_link_{link_count:02d}"
+            )
+            if link_obj:
+                runner_objects.append(link_obj)
+                link_count += 1
 
-        # Step 6. Join the outer frame, all wall rings, bridges and gates
-        # into one final Sprue_Frame object.
-        to_join = wall_objects + bridge_objects + gate_objects
-        if to_join:
-            bpy.ops.object.select_all(action='DESELECT')
-            frame_obj.select_set(True)
-            for o in to_join:
-                o.select_set(True)
-            context.view_layer.objects.active = frame_obj
-            bpy.ops.object.join()
-            frame_obj = context.active_object
-            frame_obj.name = "Sprue_Frame"
+        # Feeders: one bar per remaining gate, from the X trunk out to the frame,
+        # passing through the gate base and stopping short of any part in the way
+        # Two gates can share one feeder (a part's far gate and the next part's
+        # near gate sit in the same gap), so only keep one job per X position
+        # and side, otherwise we would build two bars on top of each other
+        unique_feeder_jobs = []
+        seen_feeders = set()
+        for gate_base, side_y in feeders_needed:
+            key = (round(gate_base.x, 2), side_y)
+            if key in seen_feeders:
+                continue
+            seen_feeders.add(key)
+            unique_feeder_jobs.append((gate_base, side_y))
 
-        # Step 7. Reselect pieces + frame for visibility.
-        bpy.ops.object.select_all(action='DESELECT')
-        for obj in pieces:
-            obj.select_set(True)
+        for feeder_num, (gate_base, side_y) in enumerate(unique_feeder_jobs):
+            feeder_x = gate_base.x
+            start_y = gate_base.y
+
+            # The outer frame edge on this part's side
+            if side_y > 0:
+                outer_limit = frame_top
+            else:
+                outer_limit = frame_bottom
+
+            # Outward end (toward the frame)
+            outer_end_y = utils.find_feeder_end(
+                feeder_x,
+                start_y,
+                side_y,
+                outer_limit,
+                placed_bounds,
+                runner_diameter / 2,
+                feeder_clearance
+            )
+
+            # inner end (toward the x trunk at y = 0)
+            centre_end_y = utils.find_feeder_end(
+                feeder_x,
+                start_y,
+                -side_y,
+                0.0,
+                placed_bounds,
+                runner_diameter / 2,
+                feeder_clearance
+            )
+
+            feeder_obj = utils.add_runner_bar(
+                context.collection,
+                Vector((feeder_x, centre_end_y, 0.0)),
+                Vector((feeder_x, outer_end_y, 0.0)),
+                runner_diameter / 2,
+                f"_runner_feeder_{feeder_num:02d}"
+            )
+            if feeder_obj:
+                runner_objects.append(feeder_obj)
+
+        # Copy every part so the originals can be restored later by Clear all.
+        # The copies are what gets joined into the sprue.
+        part_copies = []
+        part_copy_meshes = []
+        for part_obj, _volume in parts_list:
+            copy_obj = part_obj.copy()
+            copy_obj.data = part_obj.data.copy() # own mesh, so the original is untouched
+            copy_obj.vertex_groups.clear() # paint data stays on the original, not in the final sprue
+            copy_obj.name = f"_part_copy_{part_obj.name}"
+            context.collection.objects.link(copy_obj)
+            part_copies.append(copy_obj)
+            part_copy_meshes.append(copy_obj.data)
+
+        # Join the injection sprue, outer frame, runners, gates and part copies into one final Sprue_Frame object
+        to_join = runner_objects + gate_objects + part_copies
+
+        bpy.ops.object.select_all(action="DESELECT")
         frame_obj.select_set(True)
+        injection_obj.select_set(True)
+        for obj in to_join:
+            obj.select_set(True)
         context.view_layer.objects.active = frame_obj
+        bpy.ops.object.join()
+        frame_obj = context.active_object
+        frame_obj.name = "Sprue_Frame"
 
+        # Joining leaves the copies' meshes behind with no users, so remove them
+        for mesh in part_copy_meshes:
+            if mesh.users == 0:
+                bpy.data.meshes.remove(mesh)
+
+        # Hide the original parts (the sprue now contains copies of them).
+        # Clear all looks for this marker to bring them back.
+        for part_obj, _volume in parts_list:
+            part_obj["_sprue_hidden_by_build"] = True
+            part_obj.hide_set(True)
+
+        if missing_priority:
+            self.report({'WARNING'}, "Some parts had no painted gate priority.")
+
+        if poor_fit_parts:
+            descriptions = []
+            for part_name, fit in poor_fit_parts:
+                descriptions.append(f"{part_name} ({fit * 100:.0f}% fit)")
+            self.report({'WARNING'}, "Gate does not sit flat on: " + ", ".join(descriptions))
+
+        if missing_gate_parts:
+            descriptions = []
+            for part_name, wanted, placed in missing_gate_parts:
+                descriptions.append(f"{part_name} (wanted {wanted + 1} gates, placed {placed + 1})")
+            self.report({'WARNING'}, "Fewer gates than the volume called for: " + ", ".join(descriptions))
         self.report(
             {'INFO'},
-            f"Sprue frame built with {len(pieces)} piece(s), "
-            f"{len(wall_objects)} wall ring(s) and {len(gate_objects)} gate(s). "
-            f"Object: 'Sprue_Frame'."
+            f"Sprue built: {len(gate_objects)} gate(s), {len(runner_objects)} runner(s), "
+            f"{link_count} gate(s) linked straight to a wall, {len(part_copies)} part(s) joined"
         )
         return {'FINISHED'}
+

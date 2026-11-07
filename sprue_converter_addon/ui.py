@@ -13,7 +13,6 @@ class SPRUE_PT_MainPanel(bpy.types.Panel):
 
     def draw(self, context):
         layout = self.layout
-        settings = context.scene.sprue_settings
         obj = context.active_object
 
         # Object status
@@ -27,14 +26,27 @@ class SPRUE_PT_MainPanel(bpy.types.Panel):
         else:
             box.label(text="Select a mesh object", icon='ERROR')
 
-        layout.separator()
+        # Utilities
+        box = layout.box()
+        box.label(text="Utilities", icon='TOOL_SETTINGS')
+        box.operator("sprue.clear_all", icon='TRASH')
+
+
+class SPRUE_PT_AnalysisPanel(bpy.types.Panel):
+    bl_label = "Model Analysis"
+    bl_idname = "SPRUE_PT_analysis"
+    bl_space_type = 'VIEW_3D'
+    bl_region_type = 'UI'
+    bl_category = "Sprue Tool"
+    bl_order = 3
+
+    def draw(self, context):
+        layout = self.layout
+        settings = context.scene.sprue_settings
 
         # Step 1: Analysis
         box = layout.box()
-        box.label(text="Step 1 — Analyse", icon='FORCE_MAGNETIC')
-        col = box.column(align=True)
-        col.prop(settings, "curvature_threshold", slider=True)
-        col.operator("sprue.analyze_mesh", icon='HIDE_OFF')
+        box.operator("sprue.analyze_mesh", icon='HIDE_OFF')
 
         # DFM Checks for report
         check_items = [
@@ -47,60 +59,72 @@ class SPRUE_PT_MainPanel(bpy.types.Panel):
             ("Overhanging Faces", "overhang_face_count"),
             ("Thin Walls", "thin_wall_count"),
             ("Nonplanar Faces", "nonplanar_face_count"),
+            ("Islands", "last_island_count"),
         ]
 
         has_issues = False
-
-        # Check each check
         for label, attr_name in check_items:
             value = getattr(settings, attr_name, 0)
-
             if value > 0:
-                if not has_issues:
-                    col.alert = True
-                    col.label(text="Model not watertight!", icon='ERROR')
-                    col.label(text="Issues Detected:")
+                if attr_name != "last_island_count":
                     has_issues = True
-
-                col.label(text=f" - {label}: {value}")
+                    break
+                elif value > 1:
+                    has_issues = True
+                    break
 
         if has_issues:
+            box.alert = True
+            box.label(text="Model not watertight!", icon='ERROR')
+        else:
+            box.label(text="Model is watertight", icon='CHECKMARK')
+
+        if settings.show_dfm_report:
+            report_icon = 'DOWNARROW_HLT'
+        else:
+            report_icon = 'RIGHTARROW'
+
+        row = box.row(align=True)
+        row.prop(settings, "show_dfm_report", text="Detailed Issue Report",
+                 icon=report_icon, emboss=False)
+
+        if settings.show_dfm_report:
+            col = box.column(align=True)
+            for label, attr_name in check_items:
+                value = getattr(settings, attr_name, 0)
+                if value > 0:
+                    if attr_name != "last_island_count":
+                        col.label(text=f" - {label}: {value}")
+                    elif value > 1:
+                        col.label(text=f" - {label}: {value}")
+
             # call operator to highlight problem edges
             box.operator("sprue.select_non_manifold", text="Select Non-Manifold Elements", icon='RESTRICT_SELECT_OFF')
-        else:
-            col.label(text="Model is watertight, No issues present", icon='CHECKMARK')
 
-        if settings.last_island_count > 0:
-            row = box.row()
-            if settings.last_island_count > 1:
-                row.alert = True
-                row.label(
-                    text=f"⚠ {settings.last_island_count} islands detected!",
-                    icon='ERROR'
-                )
-            else:
-                row.label(text="✓ 1 connected island (good)", icon='CHECKMARK')
 
-        if settings.heatmap_visible:
-            box.operator("sprue.clear_heatmap", icon='HIDE_ON')
-            box.label(
-                text="Green = safe to cut  |  Red = avoid",
-                icon='INFO'
-            )
+class SPRUE_PT_BuildFramePanel(bpy.types.Panel):
+    bl_label = "Build Frame"
+    bl_idname = "SPRUE_PT_buildframe"
+    bl_space_type = 'VIEW_3D'
+    bl_region_type = 'UI'
+    bl_category = "Sprue Tool"
+    bl_order = 4
 
-        layout.separator()
+    def draw(self, context):
+        layout = self.layout
+        settings = context.scene.sprue_settings
 
-        # ── Optional: Gate priority heatmap (Blender's native Weight Paint tool)
+        # Optional: Gate priority heatmap (Blender's native Weight Paint tool)
         box = layout.box()
         box.label(text="Gate priority (optional)", icon='WPAINT_HLT')
 
         if context.mode == 'PAINT_WEIGHT':
-            box.label(text="Painting — Red = high priority, Blue = low", icon='INFO')
+            box.label(text="Red = high priority | Blue = low", icon='INFO')
             row = box.row()
             row.scale_y = 1.4
             row.operator("sprue.finish_priority_paint", icon='CHECKMARK', text="Finish painting")
         else:
-            box.label(text="Brush on areas that should get a gate.", icon='INFO')
+            box.label(text="Brush areas that should get gates", icon='INFO')
             row = box.row()
             row.operator("sprue.start_priority_paint", icon='BRUSH_DATA', text="Paint gate priority")
             if settings.last_priority_painted > 0:
@@ -109,35 +133,24 @@ class SPRUE_PT_MainPanel(bpy.types.Panel):
 
         layout.separator()
 
-        # ── Step 2: Build sprue frame
+        # Build sprue frame
         box = layout.box()
-        box.label(text="Step 2 — Build sprue frame", icon='MESH_GRID')
-        box.label(text="Select all sliced pieces, then:", icon='INFO')
+        box.label(text="Build Sprue Frame", icon='MESH_GRID')
 
         col = box.column(align=True)
         col.prop(settings, "piece_spacing")
         col.prop(settings, "frame_padding")
         col.separator()
-        col.prop(settings, "frame_width")
-        col.prop(settings, "frame_height")
+        col.prop(settings, "frame_diameter")
         col.separator()
         col.prop(settings, "gate_diameter")
         col.prop(settings, "gate_length")
+        col.prop(settings, "gate_volume_step")
+        col.prop(settings, "max_gates_per_piece")
 
-        sel_meshes = [o for o in context.selected_objects if o.type == 'MESH']
-        row = box.row()
-        row.scale_y = 1.4
-        if sel_meshes:
-            row.operator("sprue.build_frame", icon='MESH_GRID',
-                         text=f"Build frame ({len(sel_meshes)} piece(s))")
-        else:
-            row.enabled = False
-            row.operator("sprue.build_frame", icon='MESH_GRID',
-                         text="Select pieces first")
+        box.label(text="Organize Parts", icon='ERROR')
+        col = box.column(align=True)
+        col.operator("sprue.build_sprue_layout", text="Build Sprue", icon='MOD_BUILD')
 
-        layout.separator()
-
-        # Utilities
-        box = layout.box()
-        box.label(text="Utilities", icon='TOOL_SETTINGS')
-        box.operator("sprue.clear_all", icon='TRASH')
+        col.separator()
+        col.label(text="Re-run Analyze Mesh after building", icon='INFO')
