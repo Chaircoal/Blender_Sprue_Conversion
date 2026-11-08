@@ -1,26 +1,29 @@
-import bpy, bmesh
+import bmesh
+import bpy
 import numpy as np
-from pymeshlab import Mesh, MeshSet
-from maxflow import Graph
 from mathutils import Matrix
-from sklearn.mixture import GaussianMixture
+from maxflow import Graph
+from pymeshlab import Mesh, MeshSet
 from sklearn.decomposition import PCA
-from . import exceptions
+from sklearn.mixture import GaussianMixture
+
 from ..mesh_utils import (
-    get_v_coords,
-    get_face_verts,
     get_edge_verts,
-    get_selected_vertices
+    get_face_verts,
+    get_selected_vertices,
+    get_v_coords,
 )
+from . import exceptions
 
 NUM_BG_SAMPLES = 1000
-EPSILON = 1e-6  # prevent math shenanigans like doing log(0)
+EPSILON = 1e-6  # prevent invalid math ops like doing log(0)
 K = 1e12  # "sufficiently large" constant to prevent seed verts from being labelled bg
+
 
 def get_sdf(mesh: bpy.types.Mesh) -> list:
     """
     Returns the Shape Diameter Function (SDF) of a mesh's vertices using PyMeshLab.
-    
+
     The SDF measures the neighbourhood diameter of an object at a given point (vertices here).
 
     References:
@@ -38,26 +41,73 @@ def get_sdf(mesh: bpy.types.Mesh) -> list:
     ms.add_mesh(m, "sdf_mesh")
 
     ms.compute_scalar_by_shape_diameter_function_per_vertex(rays=30, cone_amplitude=60)
-    
+
     m = ms.current_mesh()
     sdf_values = m.vertex_scalar_array()
 
     valid = np.isfinite(sdf_values)
-    if not np.all(valid):
+
+    # Claude begins here
+    if not valid.any():
+        # Nothing to interpolate from
         raise exceptions.InvalidSDFValues()
+
+    if not valid.all():
+        sdf_values = _fill_invalid_sdf(sdf_values, valid, mesh)
 
     return sdf_values.tolist()
 
+
+def _fill_invalid_sdf(
+    values: np.ndarray, valid: np.ndarray, mesh: bpy.types.Mesh, max_passes: int = 10
+) -> np.ndarray:
+    """Replace invalid entries with the mean of valid neighbours (propagating
+    inwards over several passes), then the global median for any leftovers."""
+    # Vertex adjacency from edges
+    neighbours = [[] for _ in range(len(mesh.vertices))]
+    for e in mesh.edges:
+        a, b = e.vertices
+        neighbours[a].append(b)
+        neighbours[b].append(a)
+
+    values = values.copy()
+    valid = valid.copy()
+
+    for _ in range(max_passes):
+        bad = np.flatnonzero(~valid)
+        if bad.size == 0:
+            break
+
+        updates = {}
+        for i in bad:
+            nbr_vals = [values[j] for j in neighbours[i] if valid[j]]
+            if nbr_vals:
+                updates[i] = np.mean(nbr_vals)
+
+        if not updates:
+            break  # remaining bad vertices are isolated from any valid ones
+
+        # Apply after the pass so fills within one pass don't depend on each other
+        for i, v in updates.items():
+            values[i] = v
+            valid[i] = True
+
+    # Isolated vertices / disconnected islands with no valid neighbours
+    if not valid.all():
+        values[~valid] = np.median(values[valid])
+
+    return values
+    # Claude ends here
+
+
 def get_vertex_labels(
-        mesh: bpy.types.Mesh, 
-        sdf_array: np.ndarray, 
-        lambda_weight: int, 
-        beta: float) -> np.ndarray:
+    mesh: bpy.types.Mesh, sdf_array: np.ndarray, lambda_weight: int, beta: float
+) -> np.ndarray:
     """
     Labels vertices of a mesh as either foreground (1) or background (0) using the selected vertices
     as seeds.
 
-    References: 
+    References:
     Fan, L., Lic, L. and Liu, K. (2011), Paint Mesh Cutting. Computer Graphics Forum, 30: 603-612. https://doi.org/10.1111/j.1467-8659.2011.01895.x
 
     """
@@ -70,18 +120,18 @@ def get_vertex_labels(
     bg_indices = np.flatnonzero(~selected)
 
     # Number of samples for each GMM must be >= number of componenets
-    if len(fg_indices) < 2:   # fg GMM has 2 components
+    if len(fg_indices) < 2:  # fg GMM has 2 components
         raise exceptions.TooFewVerticesSelected(min_selected=2)
 
-    if len(bg_indices) < 4:   # bg GMM has 4 components
+    if len(bg_indices) < 4:  # bg GMM has 4 components
         raise exceptions.TooManyVerticesSelected(min_unselected=4)
 
-    num_bg_samples = min(NUM_BG_SAMPLES, len(bg_indices)) 
+    num_bg_samples = min(NUM_BG_SAMPLES, len(bg_indices))
     bg_sample_indices = np.random.choice(bg_indices, size=num_bg_samples, replace=False)
 
     # Get SDF values for samples and reshape to column vector (necessary for GMM)
-    fg_samples = np.reshape(sdf_array[fg_indices], (-1, 1)) 
-    bg_samples = np.reshape(sdf_array[bg_sample_indices], shape=(-1, 1)) 
+    fg_samples = np.reshape(sdf_array[fg_indices], (-1, 1))
+    bg_samples = np.reshape(sdf_array[bg_sample_indices], shape=(-1, 1))
 
     gmm_fg: GaussianMixture = GaussianMixture(n_components=2, random_state=0)
     gmm_fg.fit(fg_samples)
@@ -92,87 +142,94 @@ def get_vertex_labels(
     sdf_array = np.reshape(sdf_array, shape=(-1, 1))
 
     vertex_labels = _energy_minimization(
-        mesh, 
-        sdf_array, 
-        fg_indices, 
-        gmm_bg, 
-        gmm_fg, 
+        mesh,
+        sdf_array,
+        fg_indices,
+        gmm_bg,
+        gmm_fg,
         lambda_weight=lambda_weight,
-        beta=beta
+        beta=beta,
     )
     return vertex_labels
+
 
 def _calculate_data_term(gmm_bg, samples, gmm_fg, fg_indices):
     """
     Data term equation from Paint Mesh Cutting paper.
 
-    References: 
+    References:
     Fan, L., Lic, L. and Liu, K. (2011), Paint Mesh Cutting. Computer Graphics Forum, 30: 603-612. https://doi.org/10.1111/j.1467-8659.2011.01895.x
     """
     L_b_v = -gmm_bg.score_samples(samples)
     L_f_v = -gmm_fg.score_samples(samples)
-    
+
     if fg_indices.size > 0:
         L_b_v[fg_indices] = K
         L_f_v[fg_indices] = 0.0
-    
+
     return L_b_v, L_f_v
+
 
 def _calculate_smoothness_term(mesh, num_edges, num_verts, beta, lambda_weight):
     """
     Smoothness term equation from Paint Mesh Cutting paper.
 
-    References: 
+    References:
     Fan, L., Lic, L. and Liu, K. (2011), Paint Mesh Cutting. Computer Graphics Forum, 30: 603-612. https://doi.org/10.1111/j.1467-8659.2011.01895.x
     """
     v_coords = get_v_coords(mesh)
-    
+
     # Calculate geodesic distance
-    edge_verts =  get_edge_verts(num_edges, mesh)
-    
+    edge_verts = get_edge_verts(num_edges, mesh)
+
     v_idx = edge_verts[:, 0]
     u_idx = edge_verts[:, 1]
-    
+
     edge_lengths = np.linalg.norm(v_coords[v_idx] - v_coords[u_idx], axis=1)
     e_min, e_max = np.min(edge_lengths), np.max(edge_lengths)
-    g_vu = (edge_lengths - e_min) / ((e_max - e_min) if (e_max - e_min) > 0 else 1e-8)  # geodesic distance
-    
+    g_vu = (edge_lengths - e_min) / (
+        (e_max - e_min) if (e_max - e_min) > 0 else 1e-8
+    )  # geodesic distance
+
     # Calculate normal variation
     v_normals = np.zeros(num_verts * 3, dtype=np.float64)
     mesh.vertices.foreach_get("normal", v_normals)
     v_normals = v_normals.reshape(-1, 3)
-    
-    dot_products = np.clip(np.sum(v_normals[v_idx] * v_normals[u_idx], axis=1), -1.0, 1.0)
-    n_vu = (1.0 - dot_products) / 2.0   # normal variation
-    
+
+    dot_products = np.clip(
+        np.sum(v_normals[v_idx] * v_normals[u_idx], axis=1), -1.0, 1.0
+    )
+    n_vu = (1.0 - dot_products) / 2.0  # normal variation
+
     # Calculate smoothness term
     smooth = (1.0 - beta) * n_vu + beta * g_vu
     weighted_smooth = (lambda_weight * -np.log(smooth + EPSILON)).astype(float)
 
     return v_idx, u_idx, weighted_smooth
 
+
 def _energy_minimization(
-        mesh: bpy.types.Mesh,
-        samples: np.ndarray,
-        fg_indices: np.ndarray,
-        gmm_bg: GaussianMixture,
-        gmm_fg: GaussianMixture,
-        lambda_weight: int = 100,
-        beta = .05
-    )-> np.ndarray:
+    mesh: bpy.types.Mesh,
+    samples: np.ndarray,
+    fg_indices: np.ndarray,
+    gmm_bg: GaussianMixture,
+    gmm_fg: GaussianMixture,
+    lambda_weight: int = 100,
+    beta=0.05,
+) -> np.ndarray:
     """
     Segments the mesh by minimizing an energy function using graph cuts.
 
     The energy combines data terms from foreground/background GMMs with
     smoothness terms based on geodesic distance and normal variation.
 
-    References: 
+    References:
     Fan, L., Lic, L. and Liu, K. (2011), Paint Mesh Cutting. Computer Graphics Forum, 30: 603-612. https://doi.org/10.1111/j.1467-8659.2011.01895.x
     """
     num_verts = len(samples)
     num_edges = len(mesh.edges)
-    
-    g = Graph[float]() 
+
+    g = Graph[float]()
     nodes = g.add_nodes(num_verts)
 
     # Penalty for assigning label to a vertex
@@ -180,19 +237,21 @@ def _energy_minimization(
     g.add_grid_tedges(nodes, L_b_v, L_f_v)
 
     # Penalty for assigning different labels to adjacent vertices
-    v_idx, u_idx, weighted_smooth = _calculate_smoothness_term(mesh, num_edges, num_verts, beta, lambda_weight)
+    v_idx, u_idx, weighted_smooth = _calculate_smoothness_term(
+        mesh, num_edges, num_verts, beta, lambda_weight
+    )
 
     # Populate the graph
     add_edge = g.add_edge
     for i in range(num_edges):
         add_edge(v_idx[i], u_idx[i], weighted_smooth[i], weighted_smooth[i])
 
-
     g.maxflow()
     # Flip labels so foreground == 1 and background == 0
     labels = ~g.get_grid_segments(nodes).astype(bool)
 
     return labels
+
 
 def get_or_create_material(name, color):
     """
@@ -208,8 +267,9 @@ def get_or_create_material(name, color):
         principled = nodes.get("Principled BSDF")
         if principled:
             principled.inputs["Base Color"].default_value = color
-    
+
     return mat
+
 
 def assign_slice_materials(mesh: bpy.types.Mesh, vertex_labels, mat_fg, mat_bg):
     """
@@ -219,11 +279,11 @@ def assign_slice_materials(mesh: bpy.types.Mesh, vertex_labels, mat_fg, mat_bg):
     # add materials to object if not present
     fg_idx = mesh.materials.find(mat_fg.name)
     bg_idx = mesh.materials.find(mat_bg.name)
-    
+
     if fg_idx == -1:
         fg_idx = len(mesh.materials)
         mesh.materials.append(mat_fg)
-    
+
     if bg_idx == -1:
         bg_idx = len(mesh.materials)
         mesh.materials.append(mat_bg)
@@ -238,7 +298,8 @@ def assign_slice_materials(mesh: bpy.types.Mesh, vertex_labels, mat_fg, mat_bg):
     mesh.polygons.foreach_set("material_index", material_indices)
     mesh.update()
 
-def fill_mesh(mesh: bpy.types.Mesh, use_beauty:bool = False):
+
+def fill_mesh(mesh: bpy.types.Mesh, use_beauty: bool = False):
     """
     Fills all boundary loops of a given mesh using triangle fill.
     """
@@ -246,25 +307,30 @@ def fill_mesh(mesh: bpy.types.Mesh, use_beauty:bool = False):
 
     bm.from_mesh(mesh)
 
-    boundary_edges: list[bmesh.types.BMEdge] = [e for e in bm.edges if len(e.link_faces) == 1]
+    boundary_edges: list[bmesh.types.BMEdge] = [
+        e for e in bm.edges if len(e.link_faces) == 1
+    ]
     if boundary_edges:
-        bmesh.ops.triangle_fill(bm, edges=boundary_edges, use_beauty=use_beauty, use_dissolve=False)
+        bmesh.ops.triangle_fill(
+            bm, edges=boundary_edges, use_beauty=use_beauty, use_dissolve=False
+        )
         bm.to_mesh(mesh)
 
     bm.free()
-    
+
     mesh.update()
+
 
 def align_object_along_xy(obj):
     """
     Rotates the object so that its two widest dimensions align with the XY plane.
     """
     mesh = obj.data
-    v_coords= get_v_coords(mesh)
+    v_coords = get_v_coords(mesh)
 
     pca = PCA(n_components=3)
     pca.fit(v_coords)
-    
+
     # Components array rows: [0]=Widest (X), [1]=Middle (Y), [2]=Thinnest (Z)
     R_np = pca.components_
 
@@ -282,4 +348,3 @@ def align_object_along_xy(obj):
 
     obj.select_set(True)
     mesh.update()
-
