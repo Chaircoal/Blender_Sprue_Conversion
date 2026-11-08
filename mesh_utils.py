@@ -1,12 +1,15 @@
 ## Mesh utility functions used throughout the addon
 ## Note: (""" Are documentation strings for Blender's auto-doc system, not comments """)
 
+import math
+
 import bmesh
 import numpy as np
 
+
 def get_bmesh(obj):
     """Return a BMesh from the object (in edit or object mode)."""
-    if obj.mode == 'EDIT':
+    if obj.mode == "EDIT":
         return bmesh.from_edit_mesh(obj.data)
     bm = bmesh.new()
     bm.from_mesh(obj.data)
@@ -64,13 +67,12 @@ def compute_face_curvature(bm):
                     dot = face.normal.dot(linked_face.normal)
                     # clamp for numerical safety
                     dot = max(-1.0, min(1.0, dot))
-                    import math
+
                     angle = math.acos(dot) / math.pi  # normalise 0–1
                     neighbour_angles.append(angle)
 
         curvatures.append(
-            sum(neighbour_angles) / len(neighbour_angles)
-            if neighbour_angles else 0.0
+            sum(neighbour_angles) / len(neighbour_angles) if neighbour_angles else 0.0
         )
 
     # Normalise to 0–1 range
