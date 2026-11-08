@@ -11,17 +11,19 @@ class MeshSegmentProperties(PropertyGroup):
         default=False,
     )
     lambda_weight: IntProperty(
-        name="Lambda Weight",
+        name="Sensitivity",
         default=100,
         min=1,
         max=500,
         step=5,
-        description="Sensitivity of the slicing algorithm",
+        description="Affects how sensitive the algorithm is to vertex selection.",
     )
     beta: FloatProperty(
-        name="Beta",
+        name="Edge Length Weight",
         default=0.05,
         min=0.01,
         max=1,
-        description="beta..",
+        description="Balance between surface curvature and edge length when placing the cut. "
+        "Low values favour creases and sharp surface changes, "
+        "high values favour shorter edges.",
     )
