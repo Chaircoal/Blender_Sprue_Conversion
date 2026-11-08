@@ -3,6 +3,8 @@ import bpy
 import numpy as np
 from maxflow import Graph
 from pymeshlab import Mesh, MeshSet
+from scipy.sparse import coo_matrix
+from scipy.sparse.csgraph import connected_components
 from sklearn.mixture import GaussianMixture
 
 from ..mesh_utils import (
@@ -96,7 +98,10 @@ def _fill_invalid_sdf(
 
 
 def get_vertex_labels(
-    mesh: bpy.types.Mesh, sdf_array: np.ndarray, lambda_weight: int, beta: float
+    mesh: bpy.types.Mesh,
+    sdf_array: np.ndarray,
+    lambda_weight: int,
+    beta: float,
 ) -> np.ndarray:
     """
     Labels vertices of a mesh as either foreground (1) or background (0) using the selected vertices
@@ -145,6 +150,9 @@ def get_vertex_labels(
         lambda_weight=lambda_weight,
         beta=beta,
     )
+
+    vertex_labels = _keep_best_group(mesh, vertex_labels, selected)
+
     return vertex_labels
 
 
@@ -246,6 +254,37 @@ def _energy_minimization(
     labels = ~g.get_grid_segments(nodes).astype(bool)
 
     return labels
+
+
+def _keep_best_group(mesh, labels, selected):
+    """
+    Keeps only the connected group of labelled vertices that contains the
+    most selected vertices. Ties are broken by group size.
+    """
+    n = len(mesh.vertices)
+    labelled = labels == 1
+    if not labelled.any():
+        return labels.copy()
+
+    edges = np.empty(len(mesh.edges) * 2, dtype=np.int64)
+    mesh.edges.foreach_get("vertices", edges)
+    edges = edges.reshape(-1, 2)
+
+    # Only edges with both ends labelled
+    keep = labelled[edges[:, 0]] & labelled[edges[:, 1]]
+    edges = edges[keep]
+
+    graph = coo_matrix((np.ones(len(edges)), (edges[:, 0], edges[:, 1])), shape=(n, n))
+    n_comp, comp = connected_components(graph, directed=False)
+
+    # Per-group stats, counting labelled vertices only
+    sizes = np.bincount(comp[labelled], minlength=n_comp)
+    sel_counts = np.bincount(comp[labelled & selected], minlength=n_comp)
+
+    # lexsort: last key is primary -> most selected first, then largest size
+    best = np.lexsort((sizes, sel_counts))[-1]
+
+    return ((comp == best) & labelled).astype(labels.dtype)
 
 
 def get_or_create_material(name, color):
