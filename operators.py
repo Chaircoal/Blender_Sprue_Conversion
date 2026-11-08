@@ -1,6 +1,7 @@
 ## Operators that are used throughout the conversion process
 
 import bpy
+
 from .priority_brush import utils
 from .sprue_gen import utils as sprue_utils
 
@@ -9,14 +10,15 @@ GENERATED_PREFIXES = tuple(sprue_utils.GENERATED_NAME_PREFIXES)
 
 class SPRUE_OT_ClearAll(bpy.types.Operator):
     """Remove the built sprue, visualisation objects and all stored sprue data"""
+
     bl_idname = "sprue.clear_all"
     bl_label = "Clear all"
-    bl_options = {'REGISTER', 'UNDO'}
+    bl_options = {"REGISTER", "UNDO"}
 
     def execute(self, context):
         # Can't safely delete objects / vertex groups while in Edit or Weight Paint mode
-        if context.mode != 'OBJECT':
-            bpy.ops.object.mode_set(mode='OBJECT')
+        if context.mode != "OBJECT":
+            bpy.ops.object.mode_set(mode="OBJECT")
 
         # Bring back the original parts that BuildSprue hid after copying them into the sprue
         restored = 0
@@ -29,7 +31,7 @@ class SPRUE_OT_ClearAll(bpy.types.Operator):
 
         # Clear stored paint / analysis data from every part
         for obj in context.scene.objects:
-            if obj.type != 'MESH':
+            if obj.type != "MESH":
                 continue
             for key in ("_sprue_curvatures", "_sprue_candidates", "_sprue_priority"):
                 if key in obj:
@@ -59,7 +61,7 @@ class SPRUE_OT_ClearAll(bpy.types.Operator):
         settings.last_priority_painted = 0
 
         self.report(
-            {'INFO'},
-            f"All sprue data cleared ({removed} generated object(s) removed, {restored} part(s) restored)."
+            {"INFO"},
+            f"All sprue data cleared ({removed} generated object(s) removed, {restored} part(s) restored).",
         )
-        return {'FINISHED'}
+        return {"FINISHED"}

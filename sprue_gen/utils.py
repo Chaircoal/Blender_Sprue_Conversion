@@ -1,10 +1,12 @@
 import math
-import bpy
+
 import bmesh
+import bpy
 import numpy as np
-from mathutils import Vector, Matrix
-from ..priority_brush.utils import get_priority_values
+from mathutils import Matrix, Vector
+
 from .. import mesh_utils
+from ..priority_brush.utils import get_priority_values
 
 DEBUG = False  # set to False to silence the [SPRUE] prints in the system console
 
@@ -19,6 +21,7 @@ def debug(*args):
 # Work out which direction the painted gate-priority area faces, so orient_part
 # can turn that area toward the injection point. With nothing painted we look
 # for the largest flat patch instead (find_flat_gate_region).
+
 
 def get_weighted_vertices_local(obj, min_weight=0.02):
     """
@@ -73,11 +76,11 @@ def fit_weighted_plane(points_weights):
     degenerate = (eigvals[1] / spread) < 0.05
 
     return {
-        'centroid': Vector(centroid),
-        'normal': normal,
-        'line_direction': axis_c,
-        'valid_normal_axes': (normal, axis_b),
-        'degenerate': degenerate,
+        "centroid": Vector(centroid),
+        "normal": normal,
+        "line_direction": axis_c,
+        "valid_normal_axes": (normal, axis_b),
+        "degenerate": degenerate,
     }
 
 
@@ -134,15 +137,17 @@ def axis_for_line_shaped_paint(obj, M, fit, min_weight):
     If the painted faces don't agree on a direction, fall back to the direction
     (around the strip) that leaves the least vertical surface area.
     """
-    line_direction = fit['line_direction']
-    normal_a, normal_b = fit['valid_normal_axes']
+    line_direction = fit["line_direction"]
+    normal_a, normal_b = fit["valid_normal_axes"]
 
     painted_normal = get_painted_normal(obj, min_weight)
     if painted_normal is not None:
         along_strip = painted_normal.dot(line_direction)
         across_strip = painted_normal - line_direction * along_strip
         if across_strip.length > 0.2:
-            debug("paint is a thin strip: gate axis taken from the painted faces' normal")
+            debug(
+                "paint is a thin strip: gate axis taken from the painted faces' normal"
+            )
             return across_strip.normalized()
 
     debug("paint is a thin strip and its faces disagree: gate axis chosen by flatness")
@@ -171,7 +176,9 @@ def compute_gate_plane_axis(obj, bm, min_weight=0.02):
         axis = best_flat_axis(M)
         centroid = Vector((0.0, 0.0, 0.0))
         if obj.data.vertices:
-            centroid = sum((v.co for v in obj.data.vertices), Vector()) / len(obj.data.vertices)
+            centroid = sum((v.co for v in obj.data.vertices), Vector()) / len(
+                obj.data.vertices
+            )
         return axis, centroid, has_priority
 
     if len(weighted_pts) == 1:
@@ -181,12 +188,13 @@ def compute_gate_plane_axis(obj, bm, min_weight=0.02):
         return axis, weighted_pts[0][0].copy(), has_priority
 
     fit = fit_weighted_plane(weighted_pts)
-    if fit['degenerate']:
+    if fit["degenerate"]:
         axis = axis_for_line_shaped_paint(obj, M, fit, min_weight)
     else:
-        axis = fit['normal']
+        axis = fit["normal"]
 
-    return axis, fit['centroid'], has_priority
+    return axis, fit["centroid"], has_priority
+
 
 #  SPRUE FRAME GENERATION
 def get_face_weights(obj, weights, min_weight):
@@ -488,18 +496,18 @@ def add_gate_cylinder(collection, base_point, tip_point, diameter, name, embed=0
     perp1 = dir_norm.cross(arbitrary).normalized()
     perp2 = dir_norm.cross(perp1).normalized()
 
-    radius   = diameter / 2.0
+    radius = diameter / 2.0
     segments = 8
 
     bm = bmesh.new()
     base_verts = []
-    tip_verts  = []
+    tip_verts = []
 
     for i in range(segments):
-        angle  = 2.0 * math.pi * i / segments
+        angle = 2.0 * math.pi * i / segments
         offset = perp1 * (radius * math.cos(angle)) + perp2 * (radius * math.sin(angle))
         base_verts.append(bm.verts.new(base_point + offset))
-        tip_verts.append(bm.verts.new(tip_point  + offset))
+        tip_verts.append(bm.verts.new(tip_point + offset))
 
     # Side faces (winding so normals face outward)
     for i in range(segments):
@@ -527,7 +535,13 @@ def add_gate_cylinder(collection, base_point, tip_point, diameter, name, embed=0
 
 # Objects this add-on creates itself. They must never be treated as parts,
 # otherwise running the operator a second time would pick them up as parts
-GENERATED_NAME_PREFIXES = ("Main_Injection_Sprue", "Sprue_Frame", "_gate_", "_runner_", "_part_copy_")
+GENERATED_NAME_PREFIXES = (
+    "Main_Injection_Sprue",
+    "Sprue_Frame",
+    "_gate_",
+    "_runner_",
+    "_part_copy_",
+)
 
 
 def is_usable_part(obj, view_layer=None):
@@ -535,7 +549,7 @@ def is_usable_part(obj, view_layer=None):
     True if obj is a mesh the user can currently see (not hidden, not disabled,
     not in an excluded or hidden collection) and was not built by this add-on.
     """
-    if obj.type != 'MESH':
+    if obj.type != "MESH":
         return False
 
     if obj.name.startswith(GENERATED_NAME_PREFIXES):
@@ -593,7 +607,7 @@ def orient_part(context, obj, min_weight, face_dir):
     face_dir so it lies flat.
     Returns (Z height of the painted spot after rotating, has_priority)
     """
-    bpy.ops.object.select_all(action='DESELECT')
+    bpy.ops.object.select_all(action="DESELECT")
     obj.select_set(True)
     context.view_layer.objects.active = obj
 
@@ -608,7 +622,7 @@ def orient_part(context, obj, min_weight, face_dir):
     if not has_priority:
         axis, plane_point = find_flat_gate_region(bm)
 
-    if obj.mode != 'EDIT':
+    if obj.mode != "EDIT":
         bm.free()
 
     # get the centre of the part
@@ -624,7 +638,7 @@ def orient_part(context, obj, min_weight, face_dir):
     quat = axis.rotation_difference(target)
 
     # Apply that rotation and bake it into the mesh
-    obj.rotation_mode = 'QUATERNION'
+    obj.rotation_mode = "QUATERNION"
     obj.rotation_quaternion = quat
     bpy.ops.object.transform_apply(location=False, rotation=True, scale=False)
 
@@ -657,21 +671,21 @@ def spin_flat(context, obj, face_dir, steps=24):
     Returns the angle that was used.
     """
     mesh_pts = [v.co.copy() for v in obj.data.vertices]
-    best_angle, best_height = 0.0, float('inf')
+    best_angle, best_height = 0.0, float("inf")
 
     # Try evenly spaced angles around a full circle and keep the flattest one
     for i in range(steps):
         angle = (2 * math.pi) * i / steps
         rot = Matrix.Rotation(angle, 3, face_dir.normalized())
         zs = [(rot @ p).z for p in mesh_pts]
-        height = max(zs) - min(zs) # how tall the part would be at this angle
+        height = max(zs) - min(zs)  # how tall the part would be at this angle
         if height < best_height:
             best_height, best_angle = height, angle
 
     # Apply the best angle and bake it into the mesh
-    obj.rotation_mode = 'AXIS_ANGLE'
+    obj.rotation_mode = "AXIS_ANGLE"
     obj.rotation_axis_angle = (best_angle, *face_dir.normalized())
-    bpy.ops.object.select_all(action='DESELECT')
+    bpy.ops.object.select_all(action="DESELECT")
     obj.select_set(True)
     context.view_layer.objects.active = obj
     bpy.ops.object.transform_apply(location=False, rotation=True, scale=False)
@@ -760,8 +774,15 @@ def find_flat_gate_region(bm, spread_deg=15.0):
     return axis, point
 
 
-def find_wall_for_gate(gate_base, direction_x, wall_faces_x, max_distance,
-                       placed_bounds, half_width, clearance):
+def find_wall_for_gate(
+    gate_base,
+    direction_x,
+    wall_faces_x,
+    max_distance,
+    placed_bounds,
+    half_width,
+    clearance,
+):
     """
     Gates run along X. Look from gate_base in direction_x (+1 or -1) for a wall
     (the Y trunk or the outer frame) that the gate could run straight into
@@ -900,7 +921,9 @@ def gate_fit_score(obj, base, tip, radius, depth_tolerance=0.5, max_angle_deg=30
     offsets = [Vector((0.0, 0.0, 0.0))]
     for i in range(GATE_FIT_RIM_SAMPLES):
         angle = 2.0 * math.pi * i / GATE_FIT_RIM_SAMPLES
-        offsets.append(side_u * (radius * math.cos(angle)) + side_v * (radius * math.sin(angle)))
+        offsets.append(
+            side_u * (radius * math.cos(angle)) + side_v * (radius * math.sin(angle))
+        )
 
     # ray_cast works in the object's local space, so convert
     to_local = obj.matrix_world.inverted()
@@ -931,8 +954,9 @@ def gate_fit_score(obj, base, tip, radius, depth_tolerance=0.5, max_angle_deg=30
     return passed / len(offsets)
 
 
-def find_best_gate_tip(obj, base_x, painted_faces, gate_radius, min_fit, max_slope,
-                       max_candidates=150):
+def find_best_gate_tip(
+    obj, base_x, painted_faces, gate_radius, min_fit, max_slope, max_candidates=150
+):
     """
     Look through the painted faces for the best place to land a gate.
     painted_faces is [(weight, centre_world), ...] from get_painted_faces.
@@ -982,7 +1006,12 @@ def find_best_gate_tip(obj, base_x, painted_faces, gate_radius, min_fit, max_slo
                 best_passing_tip = centre
                 best_passing_fit = fit
 
-    debug("gate tip search:", len(candidates), "painted faces tested, best fit =", round(best_any_fit, 2))
+    debug(
+        "gate tip search:",
+        len(candidates),
+        "painted faces tested, best fit =",
+        round(best_any_fit, 2),
+    )
 
     if best_passing_tip is not None:
         return best_passing_tip, best_passing_fit
@@ -1019,8 +1048,7 @@ def rank_gate_faces(obj, curvatures, toward_dir, base_x, other_base_x, max_slope
         # Gates are straight lines from the base (Z = 0) to the face centre
         # Skip faces that would need a gate steeper than max_slope
         horizontal_distance = abs(centre_world.x - base_x)
-        if horizontal_distance < 1e-6:
-            horizontal_distance = 1e-6
+        horizontal_distance = max(horizontal_distance, 1e-6)
         slope = abs(centre_world.z) / horizontal_distance
         if slope > max_slope:
             continue
@@ -1038,7 +1066,12 @@ def rank_gate_faces(obj, curvatures, toward_dir, base_x, other_base_x, max_slope
             curvature = 0.5
 
         # Lower is better: flat, facing the right way, far across the part, gentle slope
-        score = (0.20 * curvature) - (0.15 * alignment) - (0.45 * depth) + (0.20 * slope / max_slope)
+        score = (
+            (0.20 * curvature)
+            - (0.15 * alignment)
+            - (0.45 * depth)
+            + (0.20 * slope / max_slope)
+        )
         ranked.append((score, poly.index, centre_world))
 
     # Sorts by score first (face_index is unique, so ties never reach the Vector)
@@ -1059,9 +1092,22 @@ def region_has_gate(region, taken_tips, tolerance=0.01):
     return False
 
 
-def find_extra_gates(obj, existing_tips, count, near_dir, min_weight,
-                     base_x_near, base_x_far, gate_radius, min_fit, fallback_fit,
-                     min_gap=10.0, min_painted_gap=10.0, max_slope=1.0, max_tries=120):
+def find_extra_gates(
+    obj,
+    existing_tips,
+    count,
+    near_dir,
+    min_weight,
+    base_x_near,
+    base_x_far,
+    gate_radius,
+    min_fit,
+    fallback_fit,
+    min_gap=10.0,
+    min_painted_gap=10.0,
+    max_slope=1.0,
+    max_tries=120,
+):
     """
     Pick up to `count` extra gate tips on a part that already has gate(s) at
     existing_tips. Everything is world space, so the part must already be placed
@@ -1099,8 +1145,10 @@ def find_extra_gates(obj, existing_tips, count, near_dir, min_weight,
     picked = []
     backups = []
 
-    debug(f"extra gates for '{obj.name}': want {count}, gate spacing {min_gap:.1f} mm "
-          f"({min_painted_gap:.1f} mm for new painted regions)")
+    debug(
+        f"extra gates for '{obj.name}': want {count}, gate spacing {min_gap:.1f} mm "
+        f"({min_painted_gap:.1f} mm for new painted regions)"
+    )
 
     # other painted regions (the user told us where they want gates)
     painted_regions = find_painted_clusters(obj, min_weight)
@@ -1126,14 +1174,20 @@ def find_extra_gates(obj, existing_tips, count, near_dir, min_weight,
             if not is_too_close(centre, taken, gap):
                 usable_faces.append((weight, centre))
 
-        debug(f"painted region {region_number} ({description}): {len(region)} faces, "
-              f"{len(usable_faces)} at least {gap:.1f} mm from existing gates")
+        debug(
+            f"painted region {region_number} ({description}): {len(region)} faces, "
+            f"{len(usable_faces)} at least {gap:.1f} mm from existing gates"
+        )
         if not usable_faces:
             continue
 
-        tip, fit = find_best_gate_tip(obj, base_x_near, usable_faces, gate_radius, min_fit, max_slope)
+        tip, fit = find_best_gate_tip(
+            obj, base_x_near, usable_faces, gate_radius, min_fit, max_slope
+        )
         if tip is None:
-            debug("painted region skipped: every face in it needs a gate that is too steep")
+            debug(
+                "painted region skipped: every face in it needs a gate that is too steep"
+            )
             continue
 
         if fit >= min_fit:
@@ -1166,7 +1220,9 @@ def find_extra_gates(obj, existing_tips, count, near_dir, min_weight,
             if len(picked) >= count:
                 break
 
-            ranked = rank_gate_faces(obj, curvatures, toward_dir, base_x, other_base_x, max_slope)
+            ranked = rank_gate_faces(
+                obj, curvatures, toward_dir, base_x, other_base_x, max_slope
+            )
 
             tries = 0
             best_fit_seen = 0.0
@@ -1193,8 +1249,7 @@ def find_extra_gates(obj, existing_tips, count, near_dir, min_weight,
                 tries += 1
                 base = Vector((base_x, centre.y, 0.0))
                 fit = gate_fit_score(obj, base, centre, gate_radius)
-                if fit > best_fit_seen:
-                    best_fit_seen = fit
+                best_fit_seen = max(best_fit_seen, fit)
 
                 if fit >= min_fit:
                     picked.append((centre, side))
@@ -1206,8 +1261,10 @@ def find_extra_gates(obj, existing_tips, count, near_dir, min_weight,
                 side_name = "far"
             else:
                 side_name = "near"
-            debug(f"{side_name} side: {len(ranked)} faces could face the gate, "
-                  f"{tries} patches tested, best fit = {best_fit_seen:.2f}")
+            debug(
+                f"{side_name} side: {len(ranked)} faces could face the gate, "
+                f"{tries} patches tested, best fit = {best_fit_seen:.2f}"
+            )
 
     # if not enough perfect gates, use the best of the backups
     if len(picked) < count and backups:
