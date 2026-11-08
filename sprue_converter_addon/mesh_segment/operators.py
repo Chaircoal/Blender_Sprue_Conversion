@@ -25,7 +25,7 @@ class MESH_OT_PreprocessMesh(bpy.types.Operator):
 
         try:
             obj["_sdf"] = utils.get_sdf(obj.data)
-        except exceptions.meshsegmentError as e:
+        except exceptions.MeshSegmentError as e:
             self.report({"ERROR"}, str(e))
             return {"CANCELLED"}
         except Exception as e:
@@ -44,6 +44,11 @@ class VIEW3D_OT_DrawForeground(bpy.types.Operator):
     bl_idname = "view3d.draw_foreground"
     bl_label = "Select Part to Extract"
     bl_options = {"REGISTER", "UNDO"}
+
+    @classmethod
+    def poll(cls, context) -> bool:
+        obj = context.active_object
+        return obj is not None and obj.type == "MESH"
 
     def execute(self, context) -> set[str]:
         bpy.ops.object.mode_set(mode="EDIT")
@@ -84,7 +89,7 @@ class MESH_OT_GenerateBoundaries(bpy.types.Operator):
             mat_bg = utils.get_or_create_material("Background", (0.2, 0.4, 1.0, 1.0))
 
             utils.assign_segment_materials(mesh, vertex_labels, mat_fg, mat_bg)
-        except exceptions.meshsegmentError as e:
+        except exceptions.MeshSegmentError as e:
             self.report({"ERROR"}, str(e))
             return {"CANCELLED"}
         except Exception as e:
