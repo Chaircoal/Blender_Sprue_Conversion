@@ -1,27 +1,30 @@
-class MeshSliceError(Exception):
-    """Base exception for all slice generation errors."""
-    pass
+class MeshSegmentError(Exception):
+    """Base exception for all mesh segmentation errors."""
 
-class TooFewVerticesSelected(MeshSliceError):
+
+class TooFewVerticesSelected(MeshSegmentError):
     def __init__(self, min_selected: int = 2):
         super().__init__(
             f"Vertex selection too small. Please select at least {min_selected} vertices."
         )
 
-class TooManyVerticesSelected(MeshSliceError):
+
+class TooManyVerticesSelected(MeshSegmentError):
     def __init__(self, min_unselected: int = 4):
         super().__init__(
             f"Vertex selection too large. Please ensure at least {min_unselected} vertices are NOT selected."
         )
 
-class MeshNotTriangulated(MeshSliceError):
+
+class MeshNotTriangulated(MeshSegmentError):
     def __init__(self):
         super().__init__(
-            f"All polygons must be triangles. Please use the Triangulate modifier."
+            "All polygons must be triangles. Please use the Triangulate modifier."
         )
 
-class InvalidSDFValues(MeshSliceError):
+
+class InvalidSDFValues(MeshSegmentError):
     def __init__(self):
         super().__init__(
-            f"SDF values are invalid. Please ensure the mesh is manifold and that all normals are facing outwards."
+            "SDF values are invalid. Please ensure the mesh is manifold and that all normals are facing outwards."
         )

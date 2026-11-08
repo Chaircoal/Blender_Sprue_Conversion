@@ -6,58 +6,62 @@
 #
 # All of the required code for the Relax operator is included in this file.
 # Modifications:
-# - Modified the operator name, label & description to reflect its use for mesh slicing.
+# - Modified the operator name, label & description to reflect its use for mesh segmentation.
 # - Removed 'settings_load' and 'settings_initialize' functions.
 
-import bpy
 import bmesh
+import bpy
 import mathutils
 
 #### ------------------------------ OPERATORS ------------------------------ ####
 
-class MESH_OT_SliceLoopToolsRelax(bpy.types.Operator):
-    bl_idname = "meshslice.looptools_relax"
+
+class MESH_OT_SegmentLoopToolsRelax(bpy.types.Operator):
+    bl_idname = "meshsegment.looptools_relax"
     bl_label = "Relax Boundary"
-    bl_description = "Relax loops between slices, so they are smoother"
-    bl_options = {'REGISTER', 'UNDO'}
+    bl_description = "Relax boundary loops between segments, so they are smoother"
+    bl_options = {"REGISTER", "UNDO"}
 
     input: bpy.props.EnumProperty(
         name="Input",
-        items=(("all", "Parallel (all)", "Also use non-selected "
-               "parallel loops as input"),
-               ("selected", "Selection", "Only use selected vertices as input")),
+        items=(
+            ("all", "Parallel (all)", "Also use non-selected parallel loops as input"),
+            ("selected", "Selection", "Only use selected vertices as input"),
+        ),
         description="Loops that are relaxed",
-        default='selected'
+        default="selected",
     )
     interpolation: bpy.props.EnumProperty(
         name="Interpolation",
-        items=(("cubic", "Cubic", "Natural cubic spline, smooth results"),
-               ("linear", "Linear", "Simple and fast linear algorithm")),
+        items=(
+            ("cubic", "Cubic", "Natural cubic spline, smooth results"),
+            ("linear", "Linear", "Simple and fast linear algorithm"),
+        ),
         description="Algorithm used for interpolation",
-        default='cubic'
+        default="cubic",
     )
     iterations: bpy.props.EnumProperty(
         name="Iterations",
-        items=(("1", "1", "One"),
-               ("3", "3", "Three"),
-               ("5", "5", "Five"),
-               ("10", "10", "Ten"),
-              ("25", "25", "Twenty-five")),
+        items=(
+            ("1", "1", "One"),
+            ("3", "3", "Three"),
+            ("5", "5", "Five"),
+            ("10", "10", "Ten"),
+            ("25", "25", "Twenty-five"),
+        ),
         description="Number of times the loop is relaxed",
-        default="1"
+        default="1",
     )
     regular: bpy.props.BoolProperty(
         name="Regular",
         description="Distribute vertices at constant distances along the loop",
-        default=True
+        default=True,
     )
-
 
     @classmethod
     def poll(cls, context):
         ob = context.active_object
-        return(ob and ob.type == 'MESH' and context.mode == 'EDIT_MESH')
-
+        return ob and ob.type == "MESH" and context.mode == "EDIT_MESH"
 
     # create lists with knots and points, all correctly sorted
     def relax_calculate_knots(self, loops):
@@ -84,9 +88,7 @@ class MESH_OT_SliceLoopToolsRelax(bpy.types.Operator):
                 for i in range(extend[3 + 2 * j], len(loop), 2):
                     if loop[i] == loop[-1] and not circular:
                         continue
-                    if len(points[j]) == 0:
-                        points[j].append(loop[i])
-                    elif loop[i] != points[j][0]:
+                    if len(points[j]) == 0 or loop[i] != points[j][0]:
                         points[j].append(loop[i])
                 if circular:
                     if knots[j][0] != knots[j][-1]:
@@ -99,8 +101,7 @@ class MESH_OT_SliceLoopToolsRelax(bpy.types.Operator):
             for p in points:
                 all_points.append(p)
 
-        return(all_knots, all_points)
-
+        return (all_knots, all_points)
 
     # calculate relative positions compared to first knot
     def relax_calculate_t(self, bm_mod, knots, points, regular):
@@ -137,12 +138,12 @@ class MESH_OT_SliceLoopToolsRelax(bpy.types.Operator):
             all_tknots.append(tknots)
             all_tpoints.append(tpoints)
 
-        return(all_tknots, all_tpoints)
-
+        return (all_tknots, all_tpoints)
 
     # change the location of the points to their place on the spline
-    def relax_calculate_verts(self, bm_mod, interpolation, tknots, knots, tpoints,
-    points, splines):
+    def relax_calculate_verts(
+        self, bm_mod, interpolation, tknots, knots, tpoints, points, splines
+    ):
         change = []
         move = []
         for i in range(len(knots)):
@@ -160,7 +161,7 @@ class MESH_OT_SliceLoopToolsRelax(bpy.types.Operator):
                 elif n < 0:
                     n = 0
 
-                if interpolation == 'cubic':
+                if interpolation == "cubic":
                     ax, bx, cx, dx, tx = splines[i][n][0]
                     x = ax + bx * (m - tx) + cx * (m - tx) ** 2 + dx * (m - tx) ** 3
                     ay, by, cy, dy, ty = splines[i][n][1]
@@ -176,16 +177,16 @@ class MESH_OT_SliceLoopToolsRelax(bpy.types.Operator):
         for c in change:
             move.append([c[0], (bm_mod.verts[c[0]].co + c[1]) / 2])
 
-        return(move)
-
+        return move
 
     def execute(self, context):
         # initialise
         object, bm = initialise()
 
         # check cache to see if we can save time
-        cached, single_loops, loops, derived, mapping = cache_read("Relax",
-            object, bm, self.input, False)
+        cached, single_loops, loops, derived, mapping = cache_read(
+            "Relax", object, bm, self.input, False
+        )
         if cached:
             derived, bm_mod = get_derived_bmesh(object, bm, False)
         else:
@@ -197,19 +198,25 @@ class MESH_OT_SliceLoopToolsRelax(bpy.types.Operator):
 
         # saving cache for faster execution next time
         if not cached:
-            cache_write("Relax", object, bm, self.input, False, False, loops,
-                derived, mapping)
+            cache_write(
+                "Relax", object, bm, self.input, False, False, loops, derived, mapping
+            )
 
         for iteration in range(int(self.iterations)):
             # calculate splines and new positions
-            tknots, tpoints = self.relax_calculate_t(bm_mod, knots, points,
-                self.regular)
+            tknots, tpoints = self.relax_calculate_t(
+                bm_mod, knots, points, self.regular
+            )
             splines = []
             for i in range(len(knots)):
-                splines.append(calculate_splines(self.interpolation, bm_mod,
-                    tknots[i], knots[i]))
-            move = [self.relax_calculate_verts(bm_mod, self.interpolation,
-                tknots, knots, tpoints, points, splines)]
+                splines.append(
+                    calculate_splines(self.interpolation, bm_mod, tknots[i], knots[i])
+                )
+            move = [
+                self.relax_calculate_verts(
+                    bm_mod, self.interpolation, tknots, knots, tpoints, points, splines
+                )
+            ]
             move_verts(object, bm, mapping, move, False, -1)
 
         # cleaning up
@@ -217,8 +224,7 @@ class MESH_OT_SliceLoopToolsRelax(bpy.types.Operator):
             bm_mod.free()
         terminate()
 
-        return{'FINISHED'}
-
+        return {"FINISHED"}
 
     def draw(self, context):
         layout = self.layout
@@ -229,21 +235,23 @@ class MESH_OT_SliceLoopToolsRelax(bpy.types.Operator):
         col.prop(self, "iterations")
         col.prop(self, "regular")
 
+
 #### --------------------- BMESH FUNCTIONS --------------------- ####
+
 
 # get the derived mesh data, if there is a mirror modifier
 def get_derived_bmesh(object, bm, not_use_mirror):
     # check for mirror modifiers
-    if 'MIRROR' in [mod.type for mod in object.modifiers if mod.show_viewport]:
+    if "MIRROR" in [mod.type for mod in object.modifiers if mod.show_viewport]:
         derived = True
         # disable other modifiers
         show_viewport = [mod.name for mod in object.modifiers if mod.show_viewport]
         merge = []
         for mod in object.modifiers:
-            if mod.type != 'MIRROR':
+            if mod.type != "MIRROR":
                 mod.show_viewport = False
-            #leave the merge points untouched
-            if mod.type == 'MIRROR':
+            # leave the merge points untouched
+            if mod.type == "MIRROR":
                 merge.append(mod.use_mirror_merge)
                 if not_use_mirror:
                     mod.use_mirror_merge = False
@@ -259,7 +267,7 @@ def get_derived_bmesh(object, bm, not_use_mirror):
             object.modifiers[mod_name].show_viewport = True
         merge.reverse()
         for mod in object.modifiers:
-            if mod.type == 'MIRROR':
+            if mod.type == "MIRROR":
                 mod.use_mirror_merge = merge.pop()
     # no mirror modifiers, so no derived mesh necessary
     else:
@@ -272,10 +280,11 @@ def get_derived_bmesh(object, bm, not_use_mirror):
 
     return derived, bm_mod
 
+
 # return a mapping of derived indices to indices
 def get_mapping(derived, bm, bm_mod, single_vertices, full_search, loops):
     if not derived:
-        return(False)
+        return False
 
     if full_search:
         verts = [v for v in bm.verts if not v.hide]
@@ -318,6 +327,7 @@ def get_mapping(derived, bm, bm_mod, single_vertices, full_search, loops):
 
     return mapping
 
+
 def move_verts(object, bm, mapping, move, lock, influence):
     if lock:
         lock_x, lock_y, lock_z = lock
@@ -325,11 +335,12 @@ def move_verts(object, bm, mapping, move, lock, influence):
         custom = orient_slot.custom_orientation
         if custom:
             mat = custom.matrix.to_4x4().inverted() @ object.matrix_world.copy()
-        elif orient_slot.type == 'LOCAL':
+        elif orient_slot.type == "LOCAL":
             mat = mathutils.Matrix.Identity(4)
-        elif orient_slot.type == 'VIEW':
-            mat = bpy.context.region_data.view_matrix.copy() @ \
-                object.matrix_world.copy()
+        elif orient_slot.type == "VIEW":
+            mat = (
+                bpy.context.region_data.view_matrix.copy() @ object.matrix_world.copy()
+            )
         else:  # orientation == 'GLOBAL'
             mat = object.matrix_world.copy()
         mat_inv = mat.inverted()
@@ -369,8 +380,9 @@ def move_verts(object, bm, mapping, move, lock, influence):
             if influence < 0:
                 new_loc = loc
             else:
-                new_loc = loc * (influence / 100) + \
-                                 bm.verts[index].co * ((100 - influence) / 100)
+                new_loc = loc * (influence / 100) + bm.verts[index].co * (
+                    (100 - influence) / 100
+                )
 
             for mirror_Vector in mirror_Vectors:
                 for vert in bm.verts:
@@ -385,6 +397,7 @@ def move_verts(object, bm, mapping, move, lock, influence):
     bm.verts.ensure_lookup_table()
     bm.edges.ensure_lookup_table()
     bm.faces.ensure_lookup_table()
+
 
 def check_loops(loops, mapping, bm_mod):
     valid_loops = []
@@ -413,6 +426,7 @@ def check_loops(loops, mapping, bm_mod):
         valid_loops.append([loop, circular])
 
     return valid_loops
+
 
 # calculates natural cubic splines through all given knots
 def calculate_cubic_splines(bm_mod, tknots, knots):
@@ -502,7 +516,8 @@ def calculate_cubic_splines(bm_mod, tknots, knots):
         knots = knots[4:-4]
         tknots = tknots[4:-4]
 
-    return(splines)
+    return splines
+
 
 # calculates linear splines through all given knots
 def calculate_linear_splines(bm_mod, tknots, knots):
@@ -515,16 +530,18 @@ def calculate_linear_splines(bm_mod, tknots, knots):
         u = tknots[i + 1] - t
         splines.append([a, d, t, u])  # [locStart, locDif, tStart, tDif]
 
-    return(splines)
+    return splines
+
 
 # calculate splines based on given interpolation method (controller function)
 def calculate_splines(interpolation, bm_mod, tknots, knots):
-    if interpolation == 'cubic':
+    if interpolation == "cubic":
         splines = calculate_cubic_splines(bm_mod, tknots, knots[:])
     else:  # interpolations == 'linear'
         splines = calculate_linear_splines(bm_mod, tknots, knots[:])
 
     return splines
+
 
 # calculate input loops
 def get_connected_input(object, bm, not_use_mirror, input):
@@ -544,19 +561,21 @@ def get_connected_input(object, bm, not_use_mirror, input):
                 e.select_set(True)
             else:
                 e.select_set(False)
-        
+
     bm_mod.select_flush(False)
 
     # edge_keys = [edgekey(edge) for edge in bm_mod.edges if edge.select and not edge.hide]
     loops = get_connected_selections(edge_keys)
 
     # if only selected loops are needed, we're done
-    if input == 'selected':
-        return(derived, bm_mod, loops)
+    if input == "selected":
+        return (derived, bm_mod, loops)
     # elif input == 'all':
     loops = get_parallel_loops(bm_mod, loops)
 
-    return(derived, bm_mod, loops)
+    return (derived, bm_mod, loops)
+
+
 # input: bmesh, output: dict with the edge-key as key and face-index as value
 def dict_edge_faces(bm):
     edge_faces = dict([[edgekey(edge), []] for edge in bm.edges if not edge.hide])
@@ -584,7 +603,7 @@ def dict_face_faces(bm, edge_faces=False):
                     continue
                 connected_faces[face.index].append(connected_face)
 
-    return(connected_faces)
+    return connected_faces
 
 
 # input: bmesh, output: dict with the vert index as key and edge-keys as value
@@ -597,7 +616,7 @@ def dict_vert_edges(bm):
         for vert in ek:
             vert_edges[vert].append(ek)
 
-    return(vert_edges)
+    return vert_edges
 
 
 # input: bmesh, output: dict with the vert index as key and face index as value
@@ -608,7 +627,7 @@ def dict_vert_faces(bm):
             for vert in face.verts:
                 vert_faces[vert.index].append(face.index)
 
-    return(vert_faces)
+    return vert_faces
 
 
 # input: list of edge-keys, output: dictionary with vertex-vertex connections
@@ -622,15 +641,20 @@ def dict_vert_verts(edge_keys):
             else:
                 vert_verts[ek[i]] = [ek[1 - i]]
 
-    return(vert_verts)
+    return vert_verts
+
 
 # return the edgekey ([v1.index, v2.index]) of a bmesh edge
 def edgekey(edge):
-    return(tuple(sorted([edge.verts[0].index, edge.verts[1].index])))
+    return tuple(sorted([edge.verts[0].index, edge.verts[1].index]))
+
 
 # returns the edgekeys of a bmesh face
 def face_edgekeys(face):
-    return([tuple(sorted([edge.verts[0].index, edge.verts[1].index])) for edge in face.edges])
+    return [
+        tuple(sorted([edge.verts[0].index, edge.verts[1].index])) for edge in face.edges
+    ]
+
 
 # sorts all edge-keys into a list of loops
 def get_connected_selections(edge_keys):
@@ -702,6 +726,7 @@ def get_connected_selections(edge_keys):
 
     return loops
 
+
 # returns a list of all loops parallel to the input, input included
 def get_parallel_loops(bm_mod, loops):
     # get required dictionaries
@@ -710,8 +735,10 @@ def get_parallel_loops(bm_mod, loops):
     # turn vertex loops into edge loops
     edgeloops = []
     for loop in loops:
-        edgeloop = [[sorted([loop[0][i], loop[0][i + 1]]) for i in
-                    range(len(loop[0]) - 1)], loop[1]]
+        edgeloop = [
+            [sorted([loop[0][i], loop[0][i + 1]]) for i in range(len(loop[0]) - 1)],
+            loop[1],
+        ]
         if loop[1]:  # circular
             edgeloop[0].append(sorted([loop[0][-1], loop[0][0]]))
         edgeloops.append(edgeloop[:])
@@ -742,27 +769,23 @@ def get_parallel_loops(bm_mod, loops):
                     has_branches = True
                     break
                 for face in edge_faces[i]:
-                    if len(side_a) == 0 and forbidden_side != "a":
+                    if (
+                        len(side_a) == 0
+                        and forbidden_side != "a"
+                        or side_a[-1] in connected_faces[face]
+                        and forbidden_side != "a"
+                    ):
                         side_a.append(face)
                         if forbidden_side:
                             break
                         forbidden_side = "a"
                         continue
-                    elif side_a[-1] in connected_faces[face] and \
-                    forbidden_side != "a":
-                        side_a.append(face)
-                        if forbidden_side:
-                            break
-                        forbidden_side = "a"
-                        continue
-                    if len(side_b) == 0 and forbidden_side != "b":
-                        side_b.append(face)
-                        if forbidden_side:
-                            break
-                        forbidden_side = "b"
-                        continue
-                    elif side_b[-1] in connected_faces[face] and \
-                    forbidden_side != "b":
+                    if (
+                        len(side_b) == 0
+                        and forbidden_side != "b"
+                        or side_b[-1] in connected_faces[face]
+                        and forbidden_side != "b"
+                    ):
                         side_b.append(face)
                         if forbidden_side:
                             break
@@ -784,8 +807,7 @@ def get_parallel_loops(bm_mod, loops):
                 extraloop = []
                 for fi in side:
                     for key in face_edgekeys(bm_mod.faces[fi]):
-                        if key[0] not in verts_used and key[1] not in \
-                        verts_used:
+                        if key[0] not in verts_used and key[1] not in verts_used:
                             extraloop.append(key)
                             break
                 if extraloop:
@@ -798,7 +820,7 @@ def get_parallel_loops(bm_mod, loops):
 
     # input contains branches, only return selected loop
     if has_branches:
-        return(loops)
+        return loops
 
     # change edgeloops into normal loops
     loops = []
@@ -831,72 +853,87 @@ def get_parallel_loops(bm_mod, loops):
 
     return loops
 
+
 #### --------------------- CACHE FUNCTIONS --------------------- ####
 
 # used by all tools to improve speed on reruns Unlink
 looptools_cache = {}
 
+
 # check cache for stored information
 def cache_read(tool, object, bm, input_method, boundaries):
     # current tool not cached yet
     if tool not in looptools_cache:
-        return(False, False, False, False, False)
+        return (False, False, False, False, False)
     # check if selected object didn't change
     if object.name != looptools_cache[tool]["object"]:
-        return(False, False, False, False, False)
+        return (False, False, False, False, False)
     # check if input didn't change
     if input_method != looptools_cache[tool]["input_method"]:
-        return(False, False, False, False, False)
+        return (False, False, False, False, False)
     if boundaries != looptools_cache[tool]["boundaries"]:
-        return(False, False, False, False, False)
-    modifiers = [mod.name for mod in object.modifiers if mod.show_viewport and
-                 mod.type == 'MIRROR']
+        return (False, False, False, False, False)
+    modifiers = [
+        mod.name
+        for mod in object.modifiers
+        if mod.show_viewport and mod.type == "MIRROR"
+    ]
     if modifiers != looptools_cache[tool]["modifiers"]:
-        return(False, False, False, False, False)
+        return (False, False, False, False, False)
     input = [v.index for v in bm.verts if v.select and not v.hide]
     if input != looptools_cache[tool]["input"]:
-        return(False, False, False, False, False)
+        return (False, False, False, False, False)
     # reading values
     single_loops = looptools_cache[tool]["single_loops"]
     loops = looptools_cache[tool]["loops"]
     derived = looptools_cache[tool]["derived"]
     mapping = looptools_cache[tool]["mapping"]
 
-    return(True, single_loops, loops, derived, mapping)
+    return (True, single_loops, loops, derived, mapping)
 
 
 # store information in the cache
-def cache_write(tool, object, bm, input_method, boundaries, single_loops,
-loops, derived, mapping):
+def cache_write(
+    tool, object, bm, input_method, boundaries, single_loops, loops, derived, mapping
+):
     # clear cache of current tool
-    if tool in looptools_cache:
-        del looptools_cache[tool]
+    looptools_cache.pop(tool, None)
     # prepare values to be saved to cache
     input = [v.index for v in bm.verts if v.select and not v.hide]
-    modifiers = [mod.name for mod in object.modifiers if mod.show_viewport
-    and mod.type == 'MIRROR']
+    modifiers = [
+        mod.name
+        for mod in object.modifiers
+        if mod.show_viewport and mod.type == "MIRROR"
+    ]
     # update cache
     looptools_cache[tool] = {
-        "input": input, "object": object.name,
-        "input_method": input_method, "boundaries": boundaries,
-        "single_loops": single_loops, "loops": loops,
-        "derived": derived, "mapping": mapping, "modifiers": modifiers}
+        "input": input,
+        "object": object.name,
+        "input_method": input_method,
+        "boundaries": boundaries,
+        "single_loops": single_loops,
+        "loops": loops,
+        "derived": derived,
+        "mapping": mapping,
+        "modifiers": modifiers,
+    }
 
 
 # force a full recalculation next time
 def cache_delete(tool):
-    if tool in looptools_cache:
-        del looptools_cache[tool]
+    looptools_cache.pop(tool, None)
+
 
 #### --------------------- GENERAL FUNCTIONS --------------------- ####
+
 
 # gather initial data
 def initialise():
     object = bpy.context.active_object
-    if 'MIRROR' in [mod.type for mod in object.modifiers if mod.show_viewport]:
+    if "MIRROR" in [mod.type for mod in object.modifiers if mod.show_viewport]:
         # ensure that selection is synced for the derived mesh
-        bpy.ops.object.mode_set(mode='OBJECT')
-        bpy.ops.object.mode_set(mode='EDIT')
+        bpy.ops.object.mode_set(mode="OBJECT")
+        bpy.ops.object.mode_set(mode="EDIT")
     bm = bmesh.from_edit_mesh(object.data)
 
     bm.verts.ensure_lookup_table()
@@ -910,5 +947,5 @@ def initialise():
 def terminate():
     # update editmesh cached data
     obj = bpy.context.active_object
-    if obj.mode == 'EDIT':
+    if obj.mode == "EDIT":
         bmesh.update_edit_mesh(obj.data, loop_triangles=True, destructive=True)

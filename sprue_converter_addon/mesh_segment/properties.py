@@ -1,12 +1,13 @@
 ## Settings for the Addon
 ## contains settings for the UI, Sprue creation and slicing
 
+from bpy.props import BoolProperty, FloatProperty, IntProperty
 from bpy.types import PropertyGroup
-from bpy.props import IntProperty, FloatProperty, BoolProperty
 
-class MeshSliceProperties(PropertyGroup):
-    meshslice_settings: BoolProperty(
-        name="Mesh Slicer settings expanded",
+
+class MeshSegmentProperties(PropertyGroup):
+    meshsegment_settings: BoolProperty(
+        name="Mesh Segment settings expanded",
         default=False,
     )
     lambda_weight: IntProperty(
@@ -24,5 +25,3 @@ class MeshSliceProperties(PropertyGroup):
         max=1,
         description="beta..",
     )
-
-

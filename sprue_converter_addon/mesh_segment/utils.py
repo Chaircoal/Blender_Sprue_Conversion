@@ -1,10 +1,8 @@
 import bmesh
 import bpy
 import numpy as np
-from mathutils import Matrix
 from maxflow import Graph
 from pymeshlab import Mesh, MeshSet
-from sklearn.decomposition import PCA
 from sklearn.mixture import GaussianMixture
 
 from ..mesh_utils import (
@@ -47,9 +45,7 @@ def get_sdf(mesh: bpy.types.Mesh) -> list:
 
     valid = np.isfinite(sdf_values)
 
-    # Claude begins here
     if not valid.any():
-        # Nothing to interpolate from
         raise exceptions.InvalidSDFValues()
 
     if not valid.all():
@@ -97,7 +93,6 @@ def _fill_invalid_sdf(
         values[~valid] = np.median(values[valid])
 
     return values
-    # Claude ends here
 
 
 def get_vertex_labels(
@@ -271,7 +266,7 @@ def get_or_create_material(name, color):
     return mat
 
 
-def assign_slice_materials(mesh: bpy.types.Mesh, vertex_labels, mat_fg, mat_bg):
+def assign_segment_materials(mesh: bpy.types.Mesh, vertex_labels, mat_fg, mat_bg):
     """
     Assigns foreground material to a face if all its vertices are labeled foreground.
     Otherwise, background material is assigned to the face.
@@ -318,33 +313,4 @@ def fill_mesh(mesh: bpy.types.Mesh, use_beauty: bool = False):
 
     bm.free()
 
-    mesh.update()
-
-
-def align_object_along_xy(obj):
-    """
-    Rotates the object so that its two widest dimensions align with the XY plane.
-    """
-    mesh = obj.data
-    v_coords = get_v_coords(mesh)
-
-    pca = PCA(n_components=3)
-    pca.fit(v_coords)
-
-    # Components array rows: [0]=Widest (X), [1]=Middle (Y), [2]=Thinnest (Z)
-    R_np = pca.components_
-
-    # Prevent reflection
-    if np.linalg.det(R_np) < 0:
-        R_np[2, :] *= -1.0
-
-    R_mat = Matrix(R_np.tolist())
-
-    # rotate object
-    if obj.rotation_mode == "QUATERNION":
-        obj.rotation_quaternion = R_mat.to_quaternion()
-    else:
-        obj.rotation_euler = R_mat.to_euler(obj.rotation_mode)
-
-    obj.select_set(True)
     mesh.update()
