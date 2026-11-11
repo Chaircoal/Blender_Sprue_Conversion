@@ -1,9 +1,9 @@
-## Mesh utility functions used throughout the addon
-## Note: (""" Are documentation strings for Blender's auto-doc system, not comments """)
+## Utility functions used throughout the addon
 
 import math
 
 import bmesh
+import bpy
 import numpy as np
 
 
@@ -14,6 +14,65 @@ def get_bmesh(obj):
     bm = bmesh.new()
     bm.from_mesh(obj.data)
     return bm
+
+
+def bmesh_to_object(name, bm):
+    """
+    Uses bmesh to create a new mesh object.
+    """
+    mesh = bpy.data.meshes.new(name)
+    bm.to_mesh(mesh)
+    bm.free()
+    obj = bpy.data.objects.new(name, mesh)
+    bpy.context.scene.collection.objects.link(obj)
+    return obj
+
+
+def merge_objects(
+    target_obj: bpy.types.Object,
+    objs_to_merge: list[bpy.types.Object],
+    solver: str = "EXACT",
+):
+    """
+    Applies boolean union modifier to target_obj and objs_to_merge, merging them.
+    Does not make a copy of target_obj.
+
+    Solver can be: "FLOAT", "EXACT", or "MANIFOLD"
+
+    Returns target_obj.
+    """
+    if solver not in ["FLOAT", "EXACT", "MANIFOLD"]:
+        raise ValueError("Solver must be 'FLOAT', 'EXACT', or 'MANIFOLD'")
+
+    if not objs_to_merge:
+        return target_obj
+
+    # Add a Boolean Union modifier for each object in the list
+    added_mods = []
+    for i, obj in enumerate(objs_to_merge):
+        if obj == target_obj:
+            continue
+        mod = target_obj.modifiers.new(name=f"BoolUnion_{i}", type="BOOLEAN")
+        mod.operation = "UNION"
+        mod.solver = solver
+        mod.object = obj
+        added_mods.append(mod)
+
+    # Apply modifiers to get the combined mesh
+    depsgraph = bpy.context.evaluated_depsgraph_get()
+    eval_obj = target_obj.evaluated_get(depsgraph)
+    new_mesh = bpy.data.meshes.new_from_object(eval_obj)
+
+    # Swap mesh data
+    old_mesh = target_obj.data
+    target_obj.data = new_mesh
+    bpy.data.meshes.remove(old_mesh)
+
+    # Remove the Boolean modifiers added
+    for mod in added_mods:
+        target_obj.modifiers.remove(mod)
+
+    return target_obj
 
 
 def get_v_coords(mesh):

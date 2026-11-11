@@ -444,11 +444,13 @@ def add_runner_bar(collection, p1, p2, diameter, name, segments=RUNNER_SEGMENTS)
 
 def make_frame_mesh(bm, x_min, x_max, y_min, y_max, diameter, segments=RUNNER_SEGMENTS):
     """
-    Build the rectangular runner frame into bm out of four round bars, with a
-    ball at each corner so the corners are round too.
-    x_min..y_max is the INSIDE of the frame, so the bars sit just outside it
-    (their centre lines are half a diameter further out). The frame is centred at Z=0.
-    Returns the bmesh (modified in place).
+    Build the rectangular runner frame into bm as one manifold mesh (four round
+    bars with a ball at each corner, unioned together.)
+
+    x_min..y_max is the INSIDE of the frame, so the bar centre lines are half a
+    diameter further out. The frame is centred at Z=0.
+
+    Returns bm (modified in place).
     """
     radius = diameter / 2.0
     left = x_min - radius
@@ -462,10 +464,33 @@ def make_frame_mesh(bm, x_min, x_max, y_min, y_max, diameter, segments=RUNNER_SE
         Vector((right, top, 0.0)),
         Vector((left, top, 0.0)),
     ]
-    for i in range(4):
-        add_round_bar(bm, corners[i], corners[(i + 1) % 4], radius, segments)
-        add_ball(bm, corners[i], radius, segments)
 
+    # Every piece in its own bmesh -> object
+    pieces = []
+    for i in range(4):
+        bm_bar = bmesh.new()
+        add_round_bar(bm_bar, corners[i], corners[(i + 1) % 4], radius, segments)
+        pieces.append(mesh_utils.bmesh_to_object(f"_bar{i}", bm_bar))
+
+        bm_ball = bmesh.new()
+        add_ball(bm_ball, corners[i], radius, segments)
+        pieces.append(mesh_utils.bmesh_to_object(f"_ball{i}", bm_ball))
+
+    target_obj = pieces.pop(0)
+    target_obj = mesh_utils.merge_objects(target_obj, pieces, solver="MANIFOLD")
+
+    result_mesh = bpy.data.meshes.new_from_object(target_obj)
+    bm.from_mesh(result_mesh)
+
+    # Clean up temp data
+    pieces.append(target_obj)
+    for obj in pieces:
+        mesh = obj.data
+        bpy.data.objects.remove(obj, do_unlink=True)
+        bpy.data.meshes.remove(mesh)
+
+    bmesh.ops.remove_doubles(bm, verts=bm.verts, dist=1e-6)
+    bmesh.ops.recalc_face_normals(bm, faces=bm.faces)
     return bm
 
 

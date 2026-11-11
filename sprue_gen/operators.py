@@ -1,53 +1,70 @@
-import bpy
 import bmesh
+import bpy
 from mathutils import Vector
+
+from .. import mesh_utils
 from . import utils
+
 
 class SPRUE_OT_BuildSprue(bpy.types.Operator):
     """Build the sprue to connect parts together"""
+
     bl_idname = "sprue.build_sprue_layout"
     bl_label = "Build the layout of the sprue"
-    bl_options = {'REGISTER', 'UNDO'}
+    bl_options = {"REGISTER", "UNDO"}
 
     @classmethod
     def poll(cls, context):
-        has_meshes = any(utils.is_usable_part(o, context.view_layer) for o in context.view_layer.objects)
-        return context.mode == 'OBJECT' and has_meshes
+        has_meshes = any(
+            utils.is_usable_part(o, context.view_layer)
+            for o in context.view_layer.objects
+        )
+        return context.mode == "OBJECT" and has_meshes
 
     def execute(self, context):
         settings = context.scene.sprue_settings
         min_weight = settings.gate_priority_min_weight
 
-        sprue_height = 30 # height in mm
-        diameter = 10 # This is a guess but can be adjusted later
-        runner_spacing = settings.piece_spacing # gap between parts (UI: Piece spacing)
-        max_row_width = 90.0 # how far a row can extend from the sprue before wrapping
-        gate_length = settings.gate_length # how far a gate sticks out past the part's edge (UI: Gate length)
-        gate_objects = [] # kept so we can join/connect them later
-        placed_bounds = [] # world-space (x_min, x_max, y_min, y_max) of every placed part
-        runner_diameter = 3 # diameter of the round runners (value must be under runner_spacing)
+        sprue_height = 30  # height in mm
+        diameter = 10  # This is a guess but can be adjusted later
+        runner_spacing = settings.piece_spacing  # gap between parts (UI: Piece spacing)
+        max_row_width = 90.0  # how far a row can extend from the sprue before wrapping
+        gate_length = (
+            settings.gate_length
+        )  # how far a gate sticks out past the part's edge (UI: Gate length)
+        gate_objects = []  # kept so we can join/connect them later
+        placed_bounds = []  # world-space (x_min, x_max, y_min, y_max) of every placed part
+        runner_diameter = (
+            3  # diameter of the round runners (value must be under runner_spacing)
+        )
 
         # Keep the gate base inside the gap between parts, clear of the neighbouring part
         gate_length = min(gate_length, runner_spacing - runner_diameter / 2)
-        feeder_clearance = 1.0 # how close a feeder may get to a part
-        runner_objects = [] # kept so we can join them later
-        feeder_jobs = [] # (gate_base, side_y, extend_dir_x) for every gate
+        feeder_clearance = 1.0  # how close a feeder may get to a part
+        runner_objects = []  # kept so we can join them later
+        feeder_jobs = []  # (gate_base, side_y, extend_dir_x) for every gate
 
-        gate_volume_step = settings.gate_volume_step # (UI: gate volume step)
-        max_gates_per_part = settings.max_gates_per_piece # (UI: max gates per part)
-        min_gate_gap_ratio = 0.35 # closest two gates may be, as a fraction of the part's bounding box diagonal
-        min_painted_gate_gap = 10.0 # closest a gate may be (mm) to another when it goes on a different painted region
+        gate_volume_step = settings.gate_volume_step  # (UI: gate volume step)
+        max_gates_per_part = settings.max_gates_per_piece  # (UI: max gates per part)
+        min_gate_gap_ratio = 0.35  # closest two gates may be, as a fraction of the part's bounding box diagonal
+        min_painted_gate_gap = 10.0  # closest a gate may be (mm) to another when it goes on a different painted region
 
-        min_gate_fit = 0.75 # how much of the gate's end must sit on flat surface (1.0 = all of it)
-        max_gate_slope = 1.0 # steepest a gate may be, as rise over run (1.0 = 45 degrees)
-        fallback_gate_fit = 0.5 # extra gates settle for this if nothing fits as well as min_gate_fit
-        gate_embed_depth = 0.5 # how far (mm) gates sink into the part so they are fully "on" it
+        min_gate_fit = 0.75  # how much of the gate's end must sit on flat surface (1.0 = all of it)
+        max_gate_slope = (
+            1.0  # steepest a gate may be, as rise over run (1.0 = 45 degrees)
+        )
+        fallback_gate_fit = (
+            0.5  # extra gates settle for this if nothing fits as well as min_gate_fit
+        )
+        gate_embed_depth = (
+            0.5  # how far (mm) gates sink into the part so they are fully "on" it
+        )
         gate_radius = settings.gate_diameter / 2
-        poor_fit_parts = [] # (part name, fit) for parts where gate 1 doesn't sit flat
-        missing_gate_parts = [] # (part name, extra gates wanted, extra gates placed)
+        poor_fit_parts = []  # (part name, fit) for parts where gate 1 doesn't sit flat
+        missing_gate_parts = []  # (part name, extra gates wanted, extra gates placed)
 
-        gate_extend_max_distance = 15.0 # a gate this close (mm) to the Y trunk or outer frame runs straight into it
-        gate_extend_overlap = 1.0 # how far (mm) the link bar goes into the wall so the two meshes overlap
+        gate_extend_max_distance = 15.0  # a gate this close (mm) to the Y trunk or outer frame runs straight into it
+        gate_extend_overlap = 1.0  # how far (mm) the link bar goes into the wall so the two meshes overlap
 
         # Get all parts sorted by volume, largest first
         parts_list = utils.get_all_part_volume()
@@ -82,12 +99,16 @@ class SPRUE_OT_BuildSprue(bpy.types.Operator):
             start = diameter / 2 + runner_spacing
             offset_x = start
             offset_y = start
-            row_height = 0.0 # tallest part in the current row (used to move to the next row)
+            row_height = (
+                0.0  # tallest part in the current row (used to move to the next row)
+            )
 
             for part_obj, volume in quad_parts:
                 # Orient part so painted area is facing along the x-axis
                 face_dir = Vector((-sign.x, 0.0, 0.0))
-                painted_point, has_priority = utils.orient_part(context, part_obj, min_weight, face_dir)
+                painted_point, has_priority = utils.orient_part(
+                    context, part_obj, min_weight, face_dir
+                )
                 plane_z = painted_point.z
                 if not has_priority:
                     missing_priority = True
@@ -110,11 +131,13 @@ class SPRUE_OT_BuildSprue(bpy.types.Operator):
                 target_y = (offset_y + dim_y / 2) * sign.y
 
                 # move part and place painted spot at z=0
-                part_obj.location = Vector((
-                    target_x - centre_x,
-                    target_y - centre_y,
-                    -plane_z,
-                ))
+                part_obj.location = Vector(
+                    (
+                        target_x - centre_x,
+                        target_y - centre_y,
+                        -plane_z,
+                    )
+                )
 
                 # Where the part's bounding box sits in world space
                 world_min_x = mn.x + part_obj.location.x
@@ -123,7 +146,9 @@ class SPRUE_OT_BuildSprue(bpy.types.Operator):
                 world_max_y = mx.y + part_obj.location.y
 
                 # remember where this part ended up (used for the frame and for feeders)
-                placed_bounds.append((world_min_x, world_max_x, world_min_y, world_max_y))
+                placed_bounds.append(
+                    (world_min_x, world_max_x, world_min_y, world_max_y)
+                )
 
                 # Which edge of the part faces the injection point depends on the quadrant
                 if sign.x > 0:
@@ -153,7 +178,7 @@ class SPRUE_OT_BuildSprue(bpy.types.Operator):
                         painted_faces,
                         gate_radius,
                         min_gate_fit,
-                        max_gate_slope
+                        max_gate_slope,
                     )
                     if better_tip is not None:
                         gate_tip = better_tip
@@ -161,7 +186,9 @@ class SPRUE_OT_BuildSprue(bpy.types.Operator):
                 gate_base = Vector((gate_base_x, gate_tip.y, 0.0))
 
                 # How much of the gate's end actually sits on the part
-                gate_fit = utils.gate_fit_score(part_obj, gate_base, gate_tip, gate_radius)
+                gate_fit = utils.gate_fit_score(
+                    part_obj, gate_base, gate_tip, gate_radius
+                )
                 utils.debug(f"part '{part_obj.name}': gate 1 fit = {gate_fit:.2f}")
                 if gate_fit < min_gate_fit:
                     poor_fit_parts.append((part_obj.name, gate_fit))
@@ -172,7 +199,7 @@ class SPRUE_OT_BuildSprue(bpy.types.Operator):
                     gate_tip,
                     settings.gate_diameter,
                     f"_gate_{part_obj.name}",
-                    embed=gate_embed_depth
+                    embed=gate_embed_depth,
                 )
                 if gate_obj:
                     gate_objects.append(gate_obj)
@@ -185,8 +212,7 @@ class SPRUE_OT_BuildSprue(bpy.types.Operator):
                 # Extra gates: one more for every gate_volume_step of volume
                 # ---------------------------------------------------------
                 extra_wanted = int(volume // gate_volume_step)
-                if extra_wanted > max_gates_per_part - 1:
-                    extra_wanted = max_gates_per_part - 1
+                extra_wanted = min(extra_wanted, max_gates_per_part - 1)
 
                 if extra_wanted > 0:
                     # Where a gate coming in from the far side of the part would start
@@ -210,13 +236,17 @@ class SPRUE_OT_BuildSprue(bpy.types.Operator):
                         fallback_gate_fit,
                         min_gap=min_gate_gap,
                         min_painted_gap=min_painted_gate_gap,
-                        max_slope=max_gate_slope
+                        max_slope=max_gate_slope,
                     )
 
                     if len(extra_gates) < extra_wanted:
-                        missing_gate_parts.append((part_obj.name, extra_wanted, len(extra_gates)))
+                        missing_gate_parts.append(
+                            (part_obj.name, extra_wanted, len(extra_gates))
+                        )
 
-                    for gate_number, (extra_tip, side) in enumerate(extra_gates, start=2):
+                    for gate_number, (extra_tip, side) in enumerate(
+                        extra_gates, start=2
+                    ):
                         if side > 0:
                             extra_base_x = gate_base.x
                             extend_dir_x = face_dir.x
@@ -231,7 +261,7 @@ class SPRUE_OT_BuildSprue(bpy.types.Operator):
                             extra_tip,
                             settings.gate_diameter,
                             f"_gate_{part_obj.name}_{gate_number}",
-                            embed=gate_embed_depth
+                            embed=gate_embed_depth,
                         )
                         if extra_gate:
                             gate_objects.append(extra_gate)
@@ -243,8 +273,10 @@ class SPRUE_OT_BuildSprue(bpy.types.Operator):
 
         # building the outer sprue
         # work out the outer bounds of everything on the sprue
-        frame_padding = settings.frame_padding # gap between the outermost part and the frame
-        frame_diameter = settings.frame_diameter # diameter of the round frame bars
+        frame_padding = (
+            settings.frame_padding
+        )  # gap between the outermost part and the frame
+        frame_diameter = settings.frame_diameter  # diameter of the round frame bars
 
         # Start with the injection cylinder so the frame always surrounds it,
         # even if a quadrant is empty
@@ -291,7 +323,7 @@ class SPRUE_OT_BuildSprue(bpy.types.Operator):
             Vector((0.0, frame_bottom, 0.0)),
             Vector((0.0, frame_top, 0.0)),
             runner_diameter,
-            "_runner_trunk_y"
+            "_runner_trunk_y",
         )
         if y_trunk:
             runner_objects.append(y_trunk)
@@ -302,7 +334,7 @@ class SPRUE_OT_BuildSprue(bpy.types.Operator):
             Vector((frame_left, 0.0, 0.0)),
             Vector((frame_right, 0.0, 0.0)),
             runner_diameter,
-            "_runner_trunk_x"
+            "_runner_trunk_x",
         )
         if x_trunk:
             runner_objects.append(x_trunk)
@@ -326,7 +358,7 @@ class SPRUE_OT_BuildSprue(bpy.types.Operator):
                 gate_extend_max_distance,
                 placed_bounds,
                 runner_diameter / 4,
-                feeder_clearance
+                feeder_clearance,
             )
 
             if wall_x is None:
@@ -343,7 +375,7 @@ class SPRUE_OT_BuildSprue(bpy.types.Operator):
                 Vector((wall_end_x, gate_base.y, 0.0)),
                 Vector((gate_end_x, gate_base.y, 0.0)),
                 runner_diameter / 2,
-                f"_runner_link_{link_count:02d}"
+                f"_runner_link_{link_count:02d}",
             )
             if link_obj:
                 runner_objects.append(link_obj)
@@ -381,7 +413,7 @@ class SPRUE_OT_BuildSprue(bpy.types.Operator):
                 outer_limit,
                 placed_bounds,
                 runner_diameter / 2,
-                feeder_clearance
+                feeder_clearance,
             )
 
             # inner end (toward the x trunk at y = 0)
@@ -392,7 +424,7 @@ class SPRUE_OT_BuildSprue(bpy.types.Operator):
                 0.0,
                 placed_bounds,
                 runner_diameter / 2,
-                feeder_clearance
+                feeder_clearance,
             )
 
             feeder_obj = utils.add_runner_bar(
@@ -400,7 +432,7 @@ class SPRUE_OT_BuildSprue(bpy.types.Operator):
                 Vector((feeder_x, centre_end_y, 0.0)),
                 Vector((feeder_x, outer_end_y, 0.0)),
                 runner_diameter / 2,
-                f"_runner_feeder_{feeder_num:02d}"
+                f"_runner_feeder_{feeder_num:02d}",
             )
             if feeder_obj:
                 runner_objects.append(feeder_obj)
@@ -411,30 +443,41 @@ class SPRUE_OT_BuildSprue(bpy.types.Operator):
         part_copy_meshes = []
         for part_obj, _volume in parts_list:
             copy_obj = part_obj.copy()
-            copy_obj.data = part_obj.data.copy() # own mesh, so the original is untouched
-            copy_obj.vertex_groups.clear() # paint data stays on the original, not in the final sprue
+            copy_obj.data = (
+                part_obj.data.copy()
+            )  # own mesh, so the original is untouched
+            copy_obj.vertex_groups.clear()  # paint data stays on the original, not in the final sprue
             copy_obj.name = f"_part_copy_{part_obj.name}"
             context.collection.objects.link(copy_obj)
             part_copies.append(copy_obj)
             part_copy_meshes.append(copy_obj.data)
 
-        # Join the injection sprue, outer frame, runners, gates and part copies into one final Sprue_Frame object
+        # Make sprue frame a single, manifold mesh
         to_join = runner_objects + gate_objects + part_copies
+        to_join.append(injection_obj)
+        merged: bpy.types.Object = frame_obj
+        merged = mesh_utils.merge_objects(merged, to_join, solver="EXACT")
 
-        bpy.ops.object.select_all(action="DESELECT")
-        frame_obj.select_set(True)
-        injection_obj.select_set(True)
         for obj in to_join:
-            obj.select_set(True)
-        context.view_layer.objects.active = frame_obj
-        bpy.ops.object.join()
-        frame_obj = context.active_object
-        frame_obj.name = "Sprue_Frame"
+            mesh = obj.data
+            bpy.data.objects.remove(obj, do_unlink=True)
+            bpy.data.meshes.remove(mesh)
 
-        # Joining leaves the copies' meshes behind with no users, so remove them
-        for mesh in part_copy_meshes:
-            if mesh.users == 0:
-                bpy.data.meshes.remove(mesh)
+        # Triangulate the merged mesh
+        bm = bmesh.new()
+        bm.from_mesh(merged.data)
+
+        bmesh.ops.triangulate(
+            bm,
+            faces=bm.faces[:],
+            quad_method="BEAUTY",
+            ngon_method="BEAUTY",
+        )
+        bmesh.ops.recalc_face_normals(bm, faces=bm.faces)
+
+        bm.to_mesh(merged.data)
+        bm.free()
+        merged.data.update()
 
         # Hide the original parts (the sprue now contains copies of them).
         # Clear all looks for this marker to bring them back.
@@ -443,23 +486,29 @@ class SPRUE_OT_BuildSprue(bpy.types.Operator):
             part_obj.hide_set(True)
 
         if missing_priority:
-            self.report({'WARNING'}, "Some parts had no painted gate priority.")
+            self.report({"WARNING"}, "Some parts had no painted gate priority.")
 
         if poor_fit_parts:
             descriptions = []
             for part_name, fit in poor_fit_parts:
                 descriptions.append(f"{part_name} ({fit * 100:.0f}% fit)")
-            self.report({'WARNING'}, "Gate does not sit flat on: " + ", ".join(descriptions))
+            self.report(
+                {"WARNING"}, "Gate does not sit flat on: " + ", ".join(descriptions)
+            )
 
         if missing_gate_parts:
             descriptions = []
             for part_name, wanted, placed in missing_gate_parts:
-                descriptions.append(f"{part_name} (wanted {wanted + 1} gates, placed {placed + 1})")
-            self.report({'WARNING'}, "Fewer gates than the volume called for: " + ", ".join(descriptions))
+                descriptions.append(
+                    f"{part_name} (wanted {wanted + 1} gates, placed {placed + 1})"
+                )
+            self.report(
+                {"WARNING"},
+                "Fewer gates than the volume called for: " + ", ".join(descriptions),
+            )
         self.report(
-            {'INFO'},
+            {"INFO"},
             f"Sprue built: {len(gate_objects)} gate(s), {len(runner_objects)} runner(s), "
-            f"{link_count} gate(s) linked straight to a wall, {len(part_copies)} part(s) joined"
+            f"{link_count} gate(s) linked straight to a wall, {len(part_copies)} part(s) joined",
         )
-        return {'FINISHED'}
-
+        return {"FINISHED"}
