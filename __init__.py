@@ -6,8 +6,8 @@
 bl_info = {
     "name": "Sprue Tool",
     "author": "Cole Latrace",
-    "version": (0, 1, 0),
-    "blender": (3, 6, 0),
+    "version": (0, 1, 1),
+    "blender": (5, 2, 0),
     "location": "View3D > Sidebar > Sprue Tool",
     "description": "Convert resin 3D models to injection-mold sprue layout. Suggests cut planes, lays out pieces, and builds a runner frame with gates.",
     "category": "Mesh",
