@@ -32,7 +32,7 @@ import bpy
 #  REGISTRATION
 CLASSES = [
     operators.SPRUE_OT_ClearAll,
-    ui.SPRUE_PT_MainPanel,
+    ui.SPRUE_PT_Main,
 ]
 
 MODULES = [mesh_segment, dfm, priority_brush, sprue_gen]

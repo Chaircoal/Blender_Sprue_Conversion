@@ -10,7 +10,7 @@ if "bpy" in locals():
 CLASSES = (
     properties.SprueGenProperties,
     operators.SPRUE_OT_BuildSprue,
-    ui.SPRUE_PT_BuildFramePanel,
+    ui.SPRUE_PT_SprueGen,
 )
 
 

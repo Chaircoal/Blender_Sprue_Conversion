@@ -3,9 +3,8 @@ import bpy
 from . import operators
 
 
-class VIEW3D_PT_PriorityBrush(bpy.types.Panel):
+class SPRUE_PT_PriorityBrush(bpy.types.Panel):
     bl_label = "Gate Priority (optional)"
-    bl_idname = "VIEW3D_PT_prioritybrush"
     bl_space_type = "VIEW_3D"
     bl_region_type = "UI"
     bl_category = "Sprue Tool"
@@ -36,7 +35,9 @@ class VIEW3D_PT_PriorityBrush(bpy.types.Panel):
                 text="Paint gate priority",
             )
             if props.last_priority_painted > 0:
-                box.label(text=f"{props.last_priority_painted} vertex(es) marked priority")
+                box.label(
+                    text=f"{props.last_priority_painted} vertex(es) marked priority"
+                )
                 box.operator(
                     operators.SPRUE_OT_ClearPriorityPaint.bl_idname,
                     icon="TRASH",

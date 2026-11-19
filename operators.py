@@ -12,7 +12,7 @@ class SPRUE_OT_ClearAll(bpy.types.Operator):
     """Remove the built sprue, visualisation objects and all stored sprue data"""
 
     bl_idname = "sprue.clear_all"
-    bl_label = "Clear all"
+    bl_label = "Clear All"
     bl_options = {"REGISTER", "UNDO"}
 
     def execute(self, context):
@@ -55,7 +55,7 @@ class SPRUE_OT_ClearAll(bpy.types.Operator):
                 bpy.data.meshes.remove(mesh)
 
         # Reset the UI state
-        settings = context.scene.sprue_settings
+        settings = context.scene.dfm_properties
         settings.last_island_count = 0
         settings.last_candidate_count = 0
         settings.last_priority_painted = 0

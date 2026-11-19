@@ -1,9 +1,10 @@
 import bpy
 
+from . import operators
 
-class SPRUE_PT_BuildFramePanel(bpy.types.Panel):
+
+class SPRUE_PT_SprueGen(bpy.types.Panel):
     bl_label = "Build Frame"
-    bl_idname = "SPRUE_PT_buildframe"
     bl_space_type = "VIEW_3D"
     bl_region_type = "UI"
     bl_category = "Sprue Tool"
@@ -30,7 +31,7 @@ class SPRUE_PT_BuildFramePanel(bpy.types.Panel):
 
         box.label(text="Organize Parts", icon="ERROR")
         col = box.column(align=True)
-        col.operator("sprue.build_sprue_layout", text="Build Sprue", icon="MOD_BUILD")
+        col.operator(operators.SPRUE_OT_BuildSprue.bl_idname, icon="MOD_BUILD")
 
         col.separator()
         col.label(text="Re-run Analyze Mesh after building", icon="INFO")

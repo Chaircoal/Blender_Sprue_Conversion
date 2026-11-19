@@ -13,12 +13,12 @@ if "bpy" in locals():
 
 CLASSES = (
     properties.MeshSegmentProperties,
-    operators.MESH_OT_PreprocessMesh,
-    operators.VIEW3D_OT_DrawForeground,
-    operators.MESH_OT_GenerateBoundaries,
-    operators.MESH_OT_SegmentMesh,
-    looptools_relax.MESH_OT_SegmentLoopToolsRelax,
-    ui.VIEW3D_PT_MeshSegment,
+    operators.SPRUE_OT_PreprocessMesh,
+    operators.SPRUE_OT_DrawForeground,
+    operators.SPRUE_OT_GenerateBoundaries,
+    operators.SPRUE_OT_SegmentMesh,
+    looptools_relax.SPRUE_OT_LoopToolsRelaxBoundary,
+    ui.SPRUE_PT_MeshSegment,
 )
 
 

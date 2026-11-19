@@ -16,8 +16,8 @@ import mathutils
 #### ------------------------------ OPERATORS ------------------------------ ####
 
 
-class MESH_OT_SegmentLoopToolsRelax(bpy.types.Operator):
-    bl_idname = "meshsegment.looptools_relax"
+class SPRUE_OT_LoopToolsRelaxBoundary(bpy.types.Operator):
+    bl_idname = "sprue.looptools_relax_boundary"
     bl_label = "Relax Boundary"
     bl_description = "Relax boundary loops between segments, so they are smoother"
     bl_options = {"REGISTER", "UNDO"}

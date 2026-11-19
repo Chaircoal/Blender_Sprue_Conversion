@@ -12,7 +12,7 @@ CLASSES = (
     operators.SPRUE_OT_StartPriorityPaint,
     operators.SPRUE_OT_FinishPriorityPaint,
     operators.SPRUE_OT_ClearPriorityPaint,
-    ui.VIEW3D_PT_PriorityBrush,
+    ui.SPRUE_PT_PriorityBrush,
 )
 
 

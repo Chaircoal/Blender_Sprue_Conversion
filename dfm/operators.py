@@ -1,24 +1,26 @@
-import bpy
 import bmesh
-from . import utils
+import bpy
+
 from .. import mesh_utils
+from . import utils
+
 
 class SPRUE_OT_AnalyzeMesh(bpy.types.Operator):
     """Analyse the selected mesh: compute problem areas and detect islands"""
+
     bl_idname = "sprue.analyze_mesh"
-    bl_label = "Analyse mesh"
-    bl_options = {'REGISTER', 'UNDO'}
+    bl_label = "Analyze Mesh"
+    bl_options = {"REGISTER", "UNDO"}
 
     @classmethod
     def poll(cls, context):
         return (
-            context.active_object is not None
-            and context.active_object.type == 'MESH'
+            context.active_object is not None and context.active_object.type == "MESH"
         )
 
     def execute(self, context):
         obj = context.active_object
-        settings = context.scene.sprue_settings
+        settings = context.scene.dfm_properties
 
         bm = mesh_utils.get_bmesh(obj)
         curvatures = mesh_utils.compute_face_curvature(bm)
@@ -29,9 +31,15 @@ class SPRUE_OT_AnalyzeMesh(bpy.types.Operator):
         # Store non-manifold results for later use
         settings.is_watertight = manifold_result["is_watertight"]
         settings.open_edge_count = len(manifold_result["open_edge_indices"])
-        settings.non_manifold_edge_count = len(manifold_result["non_manifold_edge_indices"])
-        settings.non_manifold_vert_count = len(manifold_result["non_manifold_vert_indices"])
-        settings.incontiguous_edge_count = len(manifold_result["incontiguous_edge_indices"])
+        settings.non_manifold_edge_count = len(
+            manifold_result["non_manifold_edge_indices"]
+        )
+        settings.non_manifold_vert_count = len(
+            manifold_result["non_manifold_vert_indices"]
+        )
+        settings.incontiguous_edge_count = len(
+            manifold_result["incontiguous_edge_indices"]
+        )
         settings.zero_edge_count = len(manifold_result["zero_edge_indices"])
         settings.zero_face_count = len(manifold_result["zero_face_indices"])
         settings.overhang_face_count = len(manifold_result["overhang_face_indices"])
@@ -39,9 +47,15 @@ class SPRUE_OT_AnalyzeMesh(bpy.types.Operator):
         settings.nonplanar_face_count = len(manifold_result["nonplanar_face_indices"])
 
         obj["_sprue_open_edge_indices"] = manifold_result["open_edge_indices"]
-        obj["_sprue_non_manifold_edge_indices"] = manifold_result["non_manifold_edge_indices"]
-        obj["_sprue_non_manifold_vert_indices"] = manifold_result["non_manifold_vert_indices"]
-        obj["_sprue_incontiguous_edge_indices"] = manifold_result["incontiguous_edge_indices"]
+        obj["_sprue_non_manifold_edge_indices"] = manifold_result[
+            "non_manifold_edge_indices"
+        ]
+        obj["_sprue_non_manifold_vert_indices"] = manifold_result[
+            "non_manifold_vert_indices"
+        ]
+        obj["_sprue_incontiguous_edge_indices"] = manifold_result[
+            "incontiguous_edge_indices"
+        ]
         obj["_sprue_zero_edge_indices"] = manifold_result["zero_edge_indices"]
         obj["_sprue_zero_face_indices"] = manifold_result["zero_face_indices"]
         obj["_sprue_overhang_face_indices"] = manifold_result["overhang_face_indices"]
@@ -55,7 +69,7 @@ class SPRUE_OT_AnalyzeMesh(bpy.types.Operator):
         islands = utils.find_islands(bm)
         settings.last_island_count = len(islands)
 
-        if obj.mode != 'EDIT':
+        if obj.mode != "EDIT":
             bm.free()
 
         # Apply heatmap
@@ -64,24 +78,25 @@ class SPRUE_OT_AnalyzeMesh(bpy.types.Operator):
 
         # Switch viewport to show vertex colours
         for area in context.screen.areas:
-            if area.type == 'VIEW_3D':
+            if area.type == "VIEW_3D":
                 for space in area.spaces:
-                    if space.type == 'VIEW_3D':
-                        space.shading.type = 'SOLID'
-                        space.shading.color_type = 'VERTEX'
+                    if space.type == "VIEW_3D":
+                        space.shading.type = "SOLID"
+                        space.shading.color_type = "VERTEX"
 
         msg = f"Analysis complete. Found {len(islands)} geometry island(s)."
         if len(islands) > 1:
             msg += " WARNING: disconnected geometry detected!"
-            self.report({'WARNING'}, msg)
+            self.report({"WARNING"}, msg)
         else:
-            self.report({'INFO'}, msg)
+            self.report({"INFO"}, msg)
 
-        return {'FINISHED'}
+        return {"FINISHED"}
 
 
 class SPRUE_OT_SelectNonManifold(bpy.types.Operator):
     """Select the non-manifold elements of highlighted part"""
+
     bl_idname = "sprue.select_non_manifold"
     bl_label = "Select Non-Manifold Elements"
 
@@ -89,17 +104,17 @@ class SPRUE_OT_SelectNonManifold(bpy.types.Operator):
     @classmethod
     def poll(cls, context):
         obj = context.active_object
-        if obj is not None and obj.type == 'MESH':
+        if obj is not None and obj.type == "MESH":
             return (
-                "_sprue_open_edge_indices" in obj and
-                "_sprue_non_manifold_edge_indices" in obj and
-                "_sprue_non_manifold_vert_indices" in obj and
-                "_sprue_incontiguous_edge_indices" in obj and
-                "_sprue_zero_edge_indices" in obj and
-                "_sprue_zero_face_indices" in obj and
-                "_sprue_overhang_face_indices" in obj and
-                "_sprue_thin_wall_indices" in obj and
-                "_sprue_nonplanar_face_indices" in obj
+                "_sprue_open_edge_indices" in obj
+                and "_sprue_non_manifold_edge_indices" in obj
+                and "_sprue_non_manifold_vert_indices" in obj
+                and "_sprue_incontiguous_edge_indices" in obj
+                and "_sprue_zero_edge_indices" in obj
+                and "_sprue_zero_face_indices" in obj
+                and "_sprue_overhang_face_indices" in obj
+                and "_sprue_thin_wall_indices" in obj
+                and "_sprue_nonplanar_face_indices" in obj
             )
         return False
 
@@ -116,7 +131,7 @@ class SPRUE_OT_SelectNonManifold(bpy.types.Operator):
         nonplanar_face_indices = obj["_sprue_nonplanar_face_indices"]
 
         # change the active interaction mode to edit
-        bpy.ops.object.mode_set(mode='EDIT')
+        bpy.ops.object.mode_set(mode="EDIT")
 
         # set selection mode to edges and vertices (Verts = True, Edges = True, Faces = True)
         context.tool_settings.mesh_select_mode = (True, True, True)
@@ -158,32 +173,33 @@ class SPRUE_OT_SelectNonManifold(bpy.types.Operator):
         # update bmesh with new selection
         bmesh.update_edit_mesh(obj.data)
 
-        self.report({'INFO'},"Selected Problem Areas")
-        return {'FINISHED'}
+        self.report({"INFO"}, "Selected Problem Areas")
+        return {"FINISHED"}
 
 
 class SPRUE_OT_ClearHeatmap(bpy.types.Operator):
     """Remove the curvature heatmap from the mesh"""
+
     bl_idname = "sprue.clear_heatmap"
-    bl_label = "Clear heatmap"
-    bl_options = {'REGISTER', 'UNDO'}
+    bl_label = "Clear Heatmap"
+    bl_options = {"REGISTER", "UNDO"}
 
     @classmethod
     def poll(cls, context):
         obj = context.active_object
-        return obj is not None and obj.type == 'MESH'
+        return obj is not None and obj.type == "MESH"
 
     def execute(self, context):
         obj = context.active_object
         mesh = obj.data
-        settings = context.scene.sprue_settings
+        settings = context.scene.dfm_properties
         if "SprueCurvature" in mesh.attributes:
             mesh.attributes.remove(mesh.attributes["SprueCurvature"])
         settings.heatmap_visible = False
         for area in context.screen.areas:
-            if area.type == 'VIEW_3D':
+            if area.type == "VIEW_3D":
                 for space in area.spaces:
-                    if space.type == 'VIEW_3D':
-                        space.shading.color_type = 'MATERIAL'
-        self.report({'INFO'}, "Heatmap cleared.")
-        return {'FINISHED'}
+                    if space.type == "VIEW_3D":
+                        space.shading.color_type = "MATERIAL"
+        self.report({"INFO"}, "Heatmap cleared.")
+        return {"FINISHED"}

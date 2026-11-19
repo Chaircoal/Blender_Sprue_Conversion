@@ -9,8 +9,8 @@ from . import utils
 class SPRUE_OT_BuildSprue(bpy.types.Operator):
     """Build the sprue to connect parts together"""
 
-    bl_idname = "sprue.build_sprue_layout"
-    bl_label = "Build the layout of the sprue"
+    bl_idname = "sprue.build_sprue"
+    bl_label = "Build Sprue"
     bl_options = {"REGISTER", "UNDO"}
 
     @classmethod
@@ -22,7 +22,7 @@ class SPRUE_OT_BuildSprue(bpy.types.Operator):
         return context.mode == "OBJECT" and has_meshes
 
     def execute(self, context):
-        settings = context.scene.sprue_settings
+        settings = context.scene.spruegen_properties
         min_weight = settings.gate_priority_min_weight
 
         sprue_height = 30  # height in mm

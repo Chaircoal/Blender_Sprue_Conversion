@@ -24,9 +24,8 @@ def _is_issue(attr_name: str, value: int) -> bool:
     return value > 0
 
 
-class VIEW3D_PT_DFM(bpy.types.Panel):
+class SPRUE_PT_DFM(bpy.types.Panel):
     bl_label = "Model Analysis"
-    bl_idname = "VIEW3D_PT_dfm"
     bl_space_type = "VIEW_3D"
     bl_region_type = "UI"
     bl_category = "Sprue Tool"

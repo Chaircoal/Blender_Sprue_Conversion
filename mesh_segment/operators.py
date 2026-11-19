@@ -8,10 +8,10 @@ from numpy import asarray
 from . import exceptions, utils
 
 
-class MESH_OT_PreprocessMesh(bpy.types.Operator):
+class SPRUE_OT_PreprocessMesh(bpy.types.Operator):
     """Prepare selected mesh for slicing."""
 
-    bl_idname = "meshsegment.get_sdf"
+    bl_idname = "sprue.preprocess_mesh"
     bl_label = "Preprocess Mesh"
     bl_options = {"REGISTER", "UNDO"}
 
@@ -38,10 +38,10 @@ class MESH_OT_PreprocessMesh(bpy.types.Operator):
         return {"FINISHED"}
 
 
-class VIEW3D_OT_DrawForeground(bpy.types.Operator):
+class SPRUE_OT_DrawForeground(bpy.types.Operator):
     """Select vertices of the part you want to extract from the mesh."""
 
-    bl_idname = "view3d.draw_foreground"
+    bl_idname = "sprue.draw_foreground"
     bl_label = "Select Part to Extract"
     bl_options = {"REGISTER", "UNDO"}
 
@@ -55,10 +55,10 @@ class VIEW3D_OT_DrawForeground(bpy.types.Operator):
         return {"FINISHED"}
 
 
-class MESH_OT_GenerateBoundaries(bpy.types.Operator):
+class SPRUE_OT_GenerateBoundaries(bpy.types.Operator):
     """Assigns materials to segments based on the selected seed vertices."""
 
-    bl_idname = "meshsegment.generate_segment_boundaries"
+    bl_idname = "sprue.generate_boundaries"
     bl_label = "Generate Segments"
     bl_options = {"REGISTER", "UNDO"}
 
@@ -100,10 +100,10 @@ class MESH_OT_GenerateBoundaries(bpy.types.Operator):
         return {"FINISHED"}
 
 
-class MESH_OT_SegmentMesh(bpy.types.Operator):
+class SPRUE_OT_SegmentMesh(bpy.types.Operator):
     """Segments the mesh, by material, into separate objects."""
 
-    bl_idname = "meshsegment.segment_mesh"
+    bl_idname = "sprue.segment_mesh"
     bl_label = "Segment Mesh"
     bl_options = {"REGISTER", "UNDO"}
 
@@ -135,7 +135,7 @@ class MESH_OT_SegmentMesh(bpy.types.Operator):
 
         post_segment_objs = set(bpy.context.scene.objects)
         new_objs = list(post_segment_objs - pre_segment_objs)
-        new_objs.append(obj)  # add original obj
+        new_objs.append(obj)
 
         for o in new_objs:
             utils.fill_mesh(o.data)

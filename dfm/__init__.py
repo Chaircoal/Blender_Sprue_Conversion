@@ -12,7 +12,7 @@ CLASSES = (
     operators.SPRUE_OT_AnalyzeMesh,
     operators.SPRUE_OT_ClearHeatmap,
     operators.SPRUE_OT_SelectNonManifold,
-    ui.VIEW3D_PT_DFM,
+    ui.SPRUE_PT_DFM,
 )
 
 

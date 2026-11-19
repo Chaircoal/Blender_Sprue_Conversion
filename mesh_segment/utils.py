@@ -31,7 +31,7 @@ def get_sdf(mesh: bpy.types.Mesh) -> list:
     """
     mesh.calc_loop_triangles()
     if len(mesh.polygons) != len(mesh.loop_triangles):
-        raise exceptions.MeshNotTriangulated()
+        raise exceptions.MeshNotTriangulatedError()
 
     v_coords = get_v_coords(mesh)
     face_verts = get_face_verts(mesh)
@@ -48,7 +48,7 @@ def get_sdf(mesh: bpy.types.Mesh) -> list:
     valid = np.isfinite(sdf_values)
 
     if not valid.any():
-        raise exceptions.InvalidSDFValues()
+        raise exceptions.InvalidSDFValuesError()
 
     if not valid.all():
         sdf_values = _fill_invalid_sdf(sdf_values, valid, mesh)
@@ -112,7 +112,7 @@ def get_vertex_labels(
 
     """
     if len(mesh.polygons) != len(mesh.loop_triangles):
-        raise exceptions.MeshNotTriangulated()
+        raise exceptions.MeshNotTriangulatedError()
 
     selected = get_selected_vertices(mesh)
 
@@ -121,10 +121,10 @@ def get_vertex_labels(
 
     # Number of samples for each GMM must be >= number of componenets
     if len(fg_indices) < 2:  # fg GMM has 2 components
-        raise exceptions.TooFewVerticesSelected(min_selected=2)
+        raise exceptions.TooFewVerticesSelectedError(min_selected=2)
 
     if len(bg_indices) < 4:  # bg GMM has 4 components
-        raise exceptions.TooManyVerticesSelected(min_unselected=4)
+        raise exceptions.TooManyVerticesSelectedError(min_unselected=4)
 
     num_bg_samples = min(NUM_BG_SAMPLES, len(bg_indices))
     bg_sample_indices = np.random.choice(bg_indices, size=num_bg_samples, replace=False)
